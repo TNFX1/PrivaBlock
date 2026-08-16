@@ -8,14 +8,14 @@
 
 A privacy-focused ad, tracker, and fingerprinting protection extension for Firefox.
 
-[![Firefox](https://img.shields.io/badge/Firefox-WebExtension-orange?logo=firefox)](https://www.mozilla.org/firefox/)
-[![License](https://img.shields.io/badge/license-MPL--2.0-blue)](LICENSE)
+[!\[Firefox](https://img.shields.io/badge/Firefox-WebExtension-orange?logo=firefox)](https://www.mozilla.org/firefox/)
+[!\[License](https://img.shields.io/badge/license-MPL--2.0-blue)](LICENSE)
 
 [GitHub](https://github.com/PrivaApp/PrivaBlock) · [Issues](https://github.com/PrivaApp/PrivaBlock/issues)
 
 </div>
 
----
+\---
 
 ## Overview
 
@@ -23,24 +23,24 @@ PrivaBlock is an open-source privacy extension for Firefox designed to reduce un
 
 It combines network-level filtering with cosmetic filtering and user-configurable rules.
 
-> **Privacy should be the default, not a premium feature.**
+> \\\\\\\*\\\\\\\*Privacy should be the default, not a premium feature.\\\\\\\*\\\\\\\*
 
 ## Features
 
-- Ad blocking
-- Tracker blocking
-- Cosmetic filtering
-- Fingerprinting protection
-- Per-site protection controls
-- Custom filter rules
-- Custom filter lists
-- Light, Balanced, and Strict filtering profiles
-- Filter-list management
-- Built-in request logger
-- Per-page blocking statistics
-- Daily blocking statistics
-- Filter caching and optimization
-- Site-specific protection settings
+* Ad blocking
+* Tracker blocking
+* Cosmetic filtering
+* Fingerprinting protection
+* Per-site protection controls
+* Custom filter rules
+* Custom filter lists
+* Light, Balanced, and Strict filtering profiles
+* Filter-list management
+* Built-in request logger
+* Per-page blocking statistics
+* Daily blocking statistics
+* Filter caching and optimization
+* Site-specific protection settings
 
 ## Filtering
 
@@ -48,13 +48,13 @@ PrivaBlock supports compatible filtering syntax used by widely adopted ad-blocki
 
 Depending on the selected configuration, lists may include:
 
-- EasyList
-- EasyPrivacy
-- uBlock-compatible lists
-- AdGuard filtering lists
-- HaGeZi lists
-- Peter Lowe's list
-- User-defined lists
+* EasyList
+* EasyPrivacy
+* uBlock-compatible lists
+* AdGuard filtering lists
+* HaGeZi lists
+* Peter Lowe's list
+* User-defined lists
 
 Available lists and their default states can change between releases.
 
@@ -122,13 +122,13 @@ PrivaBlock includes a request logger for debugging and transparency.
 
 The logger can display information such as:
 
-- Blocked requests
-- Allowed requests
-- Request type
-- First-party / third-party status
-- Matching filter
-- Filter source
-- Request URL
+* Blocked requests
+* Allowed requests
+* Request type
+* First-party / third-party status
+* Matching filter
+* Filter source
+* Request URL
 
 The logger is intended to help users understand why a request was blocked or allowed.
 
@@ -228,10 +228,13 @@ PrivaBlock is licensed under the Mozilla Public License 2.0.
 
 See [LICENSE](LICENSE).
 
----
+\---
 
 <div align="center">
 
-**Made by [PrivaApp](https://github.com/PrivaApp)**
+**Made by** [**PrivaApp**](https://github.com/PrivaApp)
 
 </div>
+
+
+

@@ -1,6 +1,98 @@
-let port=null,paused=false,entries=[];
-const targetTabId=Number(new URLSearchParams(location.search).get("tabId"));
-function esc(v){return String(v??"").replace(/[&<>"']/g,x=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[x]))}
-function render(){const root=document.getElementById("log"),q=document.getElementById("filter").value.trim().toLowerCase();const visible=q?entries.filter(e=>Object.values(e).some(v=>String(v).toLowerCase().includes(q))):entries;document.getElementById("count").textContent=`${visible.length.toLocaleString()} entries`;root.innerHTML=visible.slice(-1200).reverse().map(e=>`<article class="row ${e.action==="block"?"blocked":"allowed"}"><span class="time">${new Date(e.time).toLocaleTimeString()}</span><span class="action">${e.action==="block"?"BLOCK":"ALLOW"}</span><span class="type">${esc(e.type)}</span><span class="party">${esc(e.party)}</span><div class="detail"><b>${esc(e.filter||"No matching filter")}</b><small>${esc(e.source||"No list match")}</small><code>${esc(e.url)}</code></div><span class="context">${esc(e.context)}</span></article>`).join("")||'<div class="empty"><strong>No requests yet</strong><span>Reload the target page to capture its network activity.</span></div>'}
-async function init(){if(!Number.isInteger(targetTabId)||targetTabId<0){document.getElementById("log").innerHTML='<div class="empty"><strong>Logger target unavailable</strong><span>Open Logger from the PrivaBlock popup while viewing a website.</span></div>';return}const r=await browser.runtime.sendMessage({type:"getLog",tabId:targetTabId});entries=r?.entries||[];render();port=browser.runtime.connect({name:`logger:${targetTabId}`});port.onMessage.addListener(m=>{if(m.type==="logEvent"){entries.push(m.entry);if(entries.length>1200)entries.shift();if(!paused)render()}})}
-document.getElementById("filter").addEventListener("input",render);document.getElementById("pause").addEventListener("click",e=>{paused=!paused;e.target.textContent=paused?"Resume":"Pause"});document.getElementById("clear").addEventListener("click",async()=>{await browser.runtime.sendMessage({type:"clearLog",tabId:targetTabId});entries=[];render()});document.getElementById("reloadTarget").addEventListener("click",()=>browser.tabs.reload(targetTabId,{bypassCache:false}));init();
+let port = null;
+let paused = false;
+let entries = [];
+
+const targetTabId = Number(new URLSearchParams(location.search).get("tabId"));
+
+function addText(parent, tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  el.textContent = text;
+  parent.appendChild(el);
+  return el;
+}
+
+function renderEmpty(message, detail) {
+  const root = document.getElementById("log");
+  root.replaceChildren();
+  const box = document.createElement("div");
+  box.className = "empty";
+  addText(box, "strong", "", message);
+  addText(box, "span", "", detail);
+  root.appendChild(box);
+}
+
+function render() {
+  const root = document.getElementById("log");
+  const query = document.getElementById("filter").value.trim().toLowerCase();
+  const visible = query
+    ? entries.filter(e => Object.values(e).some(v => String(v).toLowerCase().includes(query)))
+    : entries;
+
+  document.getElementById("count").textContent = `${visible.length.toLocaleString()} entries`;
+  root.replaceChildren();
+
+  if (!visible.length) {
+    renderEmpty("No requests yet", "Reload the target page to capture its network activity.");
+    return;
+  }
+
+  visible.slice(-1200).reverse().forEach(e => {
+    const article = document.createElement("article");
+    article.className = `row ${e.action === "block" ? "blocked" : "allowed"}`;
+
+    addText(article, "span", "time", new Date(e.time).toLocaleTimeString());
+    addText(article, "span", "action", e.action === "block" ? "BLOCK" : "ALLOW");
+    addText(article, "span", "type", e.type || "");
+    addText(article, "span", "party", e.party || "");
+
+    const detail = document.createElement("div");
+    detail.className = "detail";
+    addText(detail, "b", "", e.filter || "No matching filter");
+    addText(detail, "small", "", e.source || "No list match");
+    addText(detail, "code", "", e.url || "");
+    article.appendChild(detail);
+
+    addText(article, "span", "context", e.context || "");
+    root.appendChild(article);
+  });
+}
+
+async function init() {
+  if (!Number.isInteger(targetTabId) || targetTabId < 0) {
+    renderEmpty("Logger target unavailable", "Open Logger from the PrivaBlock popup while viewing a website.");
+    return;
+  }
+
+  const result = await browser.runtime.sendMessage({ type: "getLog", tabId: targetTabId });
+  entries = result?.entries || [];
+  render();
+
+  port = browser.runtime.connect({ name: `logger:${targetTabId}` });
+  port.onMessage.addListener(message => {
+    if (message.type === "logEvent") {
+      entries.push(message.entry);
+      if (entries.length > 1200) entries.shift();
+      if (!paused) render();
+    }
+  });
+}
+
+document.getElementById("filter").addEventListener("input", render);
+
+document.getElementById("pause").addEventListener("click", event => {
+  paused = !paused;
+  event.currentTarget.textContent = paused ? "Resume" : "Pause";
+});
+
+document.getElementById("clear").addEventListener("click", async () => {
+  await browser.runtime.sendMessage({ type: "clearLog", tabId: targetTabId });
+  entries = [];
+  render();
+});
+
+document.getElementById("reloadTarget").addEventListener("click", () => {
+  browser.tabs.reload(targetTabId, { bypassCache: false });
+});
+
+init();
