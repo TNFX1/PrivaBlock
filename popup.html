@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PrivaBlock</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+<header>
+  <div class="brand"><img src="icons/icon48.png" alt="PrivaBlock"><div><h1>PrivaBlock</h1><p><span id="dot"></span><span id="status">Protection active</span></p></div></div>
+  <button id="power" class="power" aria-label="Toggle protection" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v10"/><path d="M18.36 5.64a8 8 0 1 1-12.72 0"/></svg></button>
+</header>
+<section class="hero"><div id="currentBlocked" class="big">0</div><div class="label">blocked on this page</div></section>
+<section class="stats">
+  <div class="siteRow"><div class="siteIcon">◉</div><div class="siteText"><strong id="site">Current page</strong><small id="pageStatus">Protection active</small></div><b id="pageCount">0</b></div>
+  <div class="todayRow"><div><small>BLOCKED TODAY</small><strong id="dailyBlocked">0</strong></div><span>All sites</span></div>
+</section>
+<div class="quickActions single">
+  <button id="logger" class="quick"><span>≡</span><b>Logger</b></button>
+</div>
+<button id="settings" class="settings"><span class="gear">⚙</span><span><strong>Settings</strong><small>Filters, privacy and performance</small></span><b>›</b></button>
+<footer><span>PrivaBlock 2.1</span><span id="rules">Loading filters…</span></footer>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>
