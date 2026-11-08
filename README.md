@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src/icons/icon.png" width="120" alt="PrivaBlock">
+<img src="src/icons/icon.svg" width="120" alt="PrivaBlock">
 
 # PrivaBlock
 
