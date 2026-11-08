@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title data-i18n="settingsTitle">PrivaBlock</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <img src="../icons/icon48.png" alt="" width="32" height="32">
+    <div><h1>PrivaBlock</h1><small data-i18n="settingsSubtitle"></small></div>
+  </div>
+  <div class="bar-right">
+    <span id="ruleCount" class="muted"></span>
+    <button id="update" class="btn primary" type="button" data-i18n="updateFilters"></button>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2 data-i18n="profileTitle"></h2>
+    <p class="muted" data-i18n="profileHint"></p>
+    <div id="profiles" class="profiles" role="radiogroup" data-i18n-aria-label="profileTitle"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="listsTitle"></h2>
+    <p class="muted" id="listsHint"></p>
+    <p id="listWarning" class="notice warn" hidden></p>
+    <div id="lists"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="customTitle"></h2>
+    <p class="muted" data-i18n="customHint"></p>
+    <form id="addListForm" class="add-list">
+      <input id="listName" type="text" required maxlength="80" data-i18n-placeholder="customName" data-i18n-aria-label="customName">
+      <input id="listUrl" type="url" required pattern="https?://.+" placeholder="https://example.com/filters.txt" data-i18n-aria-label="customUrl">
+      <button class="btn primary" type="submit" data-i18n="customAdd"></button>
+    </form>
+    <div id="customLists" class="rows"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="myFiltersTitle"></h2>
+    <p class="muted" data-i18n="myFiltersHint"></p>
+    <textarea id="myFilters" rows="8" spellcheck="false" data-i18n-aria-label="myFiltersTitle" placeholder="||ads.example.com^&#10;example.com##.advertisement&#10;@@||trusted.example.com^"></textarea>
+    <p id="dynamicLimit" class="notice warn" hidden></p>
+    <div class="row-end"><button id="saveMyFilters" class="btn primary" type="button" data-i18n="myFiltersApply"></button></div>
+  </section>
+
+  <section class="card" id="privacySection" hidden>
+    <h2 data-i18n="privacyTitle"></h2>
+    <div class="row">
+      <div><b data-i18n="fingerprintTitle"></b><small data-i18n="fingerprintHint"></small></div>
+      <label class="switch"><input id="fingerprint" type="checkbox" role="switch" data-i18n-aria-label="fingerprintTitle"><span class="track"></span></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="disabledTitle"></h2>
+    <p class="muted" data-i18n="disabledHint"></p>
+    <div id="disabledSites" class="rows"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="diagnosticsTitle"></h2>
+    <p class="muted" id="diagnosticsHint"></p>
+    <div class="row-start">
+      <button id="benchmark" class="btn" type="button" data-i18n="benchmarkRun" hidden></button>
+      <span id="benchmarkResult" class="muted" role="status"></span>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="settings.js"></script>
+</body>
+</html>

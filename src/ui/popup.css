@@ -1,0 +1,21 @@
+body { width: 330px; }
+main { display: grid; gap: 10px; padding: 14px; }
+
+.top { display: flex; align-items: center; gap: 10px; }
+.top h1 { font-size: 16px; flex: 1; }
+
+.hero { display: grid; justify-items: center; padding: 16px 12px 14px; text-align: center; }
+.site { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.count { font-size: 44px; line-height: 1.05; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.today { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); width: 100%; color: var(--muted); font-size: 13px; }
+.today b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.site-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; }
+.site-toggle div { display: grid; }
+.site-toggle small { font-size: 12.5px; }
+
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+footer { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 0 2px; }
+
+body.off .count { color: var(--muted); }

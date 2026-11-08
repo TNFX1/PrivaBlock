@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PrivaBlock</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <img src="../icons/icon48.png" alt="" width="28" height="28">
+    <h1>PrivaBlock</h1>
+    <span id="state" class="pill" role="status"></span>
+  </header>
+
+  <section class="hero card" aria-live="polite">
+    <span id="site" class="site"></span>
+    <strong id="pageBlocked" class="count">0</strong>
+    <span data-i18n="popupBlockedOnPage" class="muted"></span>
+    <p id="today" class="today" hidden><span data-i18n="popupBlockedToday"></span> <b id="dailyBlocked">0</b></p>
+  </section>
+
+  <section class="card site-toggle">
+    <div>
+      <b data-i18n="popupSiteProtection"></b>
+      <small id="siteHint"></small>
+    </div>
+    <label class="switch"><input id="siteSwitch" type="checkbox" role="switch" data-i18n-aria-label="popupSiteProtection"><span class="track"></span></label>
+  </section>
+
+  <nav class="actions">
+    <button id="logger" class="btn" type="button" data-i18n="popupLogger"></button>
+    <button id="settings" class="btn" type="button" data-i18n="popupSettings"></button>
+  </nav>
+
+  <footer><span id="rules"></span><span id="version"></span></footer>
+</main>
+<script type="module" src="popup.js"></script>
+</body>
+</html>

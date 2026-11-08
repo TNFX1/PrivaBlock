@@ -1,0 +1,290 @@
+{
+ "extName": {
+  "message": "PrivaBlock"
+ },
+ "extDescription": {
+  "message": "Reklamları ve izleyicileri engeller. Hesap ve analitik yok."
+ },
+ "popupBlockedOnPage": {
+  "message": "bu sayfada engellendi"
+ },
+ "popupBlockedToday": {
+  "message": "Bugün engellenen:"
+ },
+ "popupSiteProtection": {
+  "message": "Bu sitede koruma"
+ },
+ "popupLogger": {
+  "message": "Kayıt defteri"
+ },
+ "popupSettings": {
+  "message": "Ayarlar"
+ },
+ "popupUnavailable": {
+  "message": "Kullanılamıyor"
+ },
+ "stateActive": {
+  "message": "Etkin"
+ },
+ "stateOff": {
+  "message": "Kapalı"
+ },
+ "popupNotWebPage": {
+  "message": "Web sayfası değil"
+ },
+ "popupSiteOnHint": {
+  "message": "Reklam ve izleyiciler engelleniyor"
+ },
+ "popupSiteOffHint": {
+  "message": "Bu site için kapalı"
+ },
+ "rulesLoading": {
+  "message": "Filtreler yükleniyor…"
+ },
+ "rulesCount": {
+  "message": "$1 kural"
+ },
+ "settingsTitle": {
+  "message": "PrivaBlock ayarları"
+ },
+ "settingsSubtitle": {
+  "message": "Koruma ayarları"
+ },
+ "updateFilters": {
+  "message": "Filtreleri güncelle"
+ },
+ "updateFiltersHint": {
+  "message": "Etkin listelerin hepsini yeniden indir"
+ },
+ "updateFiltersHintBundled": {
+  "message": "Özel listelerini yeniden indir. Yerleşik listeler PrivaBlock'un kendisiyle güncellenir."
+ },
+ "profileTitle": {
+  "message": "Koruma profili"
+ },
+ "profileHint": {
+  "message": "Profil, bir filtre listesi seti seçer. Günlük kullanım için Dengeli önerilir."
+ },
+ "profile_light": {
+  "message": "Hafif"
+ },
+ "profile_light_hint": {
+  "message": "Daha az kural; eski ya da yavaş bilgisayarlar için"
+ },
+ "profile_balanced": {
+  "message": "Dengeli"
+ },
+ "profile_balanced_hint": {
+  "message": "Güçlü koruma, az sayıda bozulan site"
+ },
+ "profile_strict": {
+  "message": "Sıkı"
+ },
+ "profile_strict_hint": {
+  "message": "Rahatsız edici öğeler ve çerez uyarıları da; bazı siteler bozulabilir"
+ },
+ "profileApplied": {
+  "message": "$1 profili seçildi"
+ },
+ "listsTitle": {
+  "message": "Filtre listeleri"
+ },
+ "listsHint": {
+  "message": "Listeler yayıncılarından indirilir ve her gün yenilenir. Daha çok liste daha çok şey yakalar ama daha çok bellek kullanır ve daha çok siteyi bozar."
+ },
+ "listsHintBundled": {
+  "message": "Listeler PrivaBlock'un içinde gelir ve onunla güncellenir. Daha çok liste daha çok şey yakalar ama daha çok siteyi bozar."
+ },
+ "manyLists": {
+  "message": "Çok sayıda liste açık. Bu daha çok bellek kullanır ve siteleri bozabilir; genellikle Dengeli yeterlidir."
+ },
+ "staticLimit": {
+  "message": "Tarayıcı seçilen listelerin hepsini açmadı (kural sınırı tüm eklentiler arasında paylaşılıyor). Bazı listeleri kapatın."
+ },
+ "group_core": {
+  "message": "Temel"
+ },
+ "group_ads": {
+  "message": "Reklamlar"
+ },
+ "group_adsPrivacy": {
+  "message": "Reklam ve gizlilik"
+ },
+ "group_privacy": {
+  "message": "Gizlilik"
+ },
+ "group_compatibility": {
+  "message": "Uyumluluk"
+ },
+ "group_annoyances": {
+  "message": "Rahatsız edici öğeler"
+ },
+ "listFailed": {
+  "message": "İndirilemedi: $1"
+ },
+ "listRules": {
+  "message": "$1 kural"
+ },
+ "listCosmetic": {
+  "message": "$1 gizleme kuralı"
+ },
+ "listBundled": {
+  "message": "yerleşik"
+ },
+ "listUpdated": {
+  "message": "güncellendi: $1"
+ },
+ "listStale": {
+  "message": "son kaydedilen kopya kullanılıyor"
+ },
+ "customTitle": {
+  "message": "Özel filtre listeleri"
+ },
+ "customHint": {
+  "message": "Adblock uyumlu herhangi bir açık listeye adresiyle abone olun."
+ },
+ "customName": {
+  "message": "Liste adı"
+ },
+ "customUrl": {
+  "message": "Liste adresi (URL)"
+ },
+ "customAdd": {
+  "message": "Liste ekle"
+ },
+ "customEmpty": {
+  "message": "Henüz özel liste yok."
+ },
+ "customRemoveConfirm": {
+  "message": "“$1” kaldırılsın mı?"
+ },
+ "customRemoved": {
+  "message": "Liste kaldırıldı"
+ },
+ "customAdded": {
+  "message": "Liste eklendi"
+ },
+ "remove": {
+  "message": "Kaldır"
+ },
+ "myFiltersTitle": {
+  "message": "Filtrelerim"
+ },
+ "myFiltersHint": {
+  "message": "Her satıra bir kural, Adblock söz dizimiyle. Gizleme kuralları example.com##.advertisement biçimindedir."
+ },
+ "myFiltersApply": {
+  "message": "Uygula"
+ },
+ "myFiltersApplied": {
+  "message": "Filtreleriniz uygulandı"
+ },
+ "dynamicLimit": {
+  "message": "Tarayıcı, filtrelerinizden ve özel listelerinizden en fazla $1 kurala izin veriyor; $2 kural dışarıda kaldı."
+ },
+ "privacyTitle": {
+  "message": "Gizlilik"
+ },
+ "fingerprintTitle": {
+  "message": "Parmak izine karşı koruma"
+ },
+ "fingerprintHint": {
+  "message": "Firefox'un kendi parmak izi korumasını açar. Siteler UTC saat dilimini ve açık temayı görür, bazıları bozulur. Kapatınca Firefox'un kendi ayarı geri gelir."
+ },
+ "disabledTitle": {
+  "message": "Korumasız siteler"
+ },
+ "disabledHint": {
+  "message": "Bir sitede korumayı, o sitedeyken PrivaBlock düğmesinden kapatabilirsiniz."
+ },
+ "disabledEmpty": {
+  "message": "Koruma her yerde açık."
+ },
+ "enable": {
+  "message": "Aç"
+ },
+ "diagnosticsTitle": {
+  "message": "Tanılama"
+ },
+ "diagnosticsHint": {
+  "message": "PrivaBlock düğmesinden açılan kayıt defteri, bir sekmenin tüm isteklerini ve kararı veren filtreyi gösterir."
+ },
+ "diagnosticsHintChromium": {
+  "message": "PrivaBlock düğmesinden açılan kayıt defteri, bir sekmede engellenen istekleri ve hangi listenin engellediğini gösterir."
+ },
+ "benchmarkRun": {
+  "message": "Performans testini çalıştır"
+ },
+ "benchmarkResult": {
+  "message": "$1 kontrol, $2 ms"
+ },
+ "working": {
+  "message": "Çalışıyor…"
+ },
+ "actionFailed": {
+  "message": "Olmadı. Tekrar deneyin."
+ },
+ "filtersUpdated": {
+  "message": "Filtreler güncellendi"
+ },
+ "backgroundUnavailable": {
+  "message": "PrivaBlock yanıt vermiyor. Eklentiyi yeniden yükleyin."
+ },
+ "loggerTitle": {
+  "message": "PrivaBlock kayıt defteri"
+ },
+ "loggerFilter": {
+  "message": "Süz"
+ },
+ "loggerRefresh": {
+  "message": "Yenile"
+ },
+ "loggerPause": {
+  "message": "Duraklat"
+ },
+ "loggerResume": {
+  "message": "Sürdür"
+ },
+ "loggerClear": {
+  "message": "Temizle"
+ },
+ "loggerReload": {
+  "message": "Sayfayı yenile"
+ },
+ "loggerTime": {
+  "message": "Saat"
+ },
+ "loggerAction": {
+  "message": "Sonuç"
+ },
+ "loggerType": {
+  "message": "Tür"
+ },
+ "loggerRequest": {
+  "message": "İstek"
+ },
+ "loggerFilterCol": {
+  "message": "Filtre"
+ },
+ "loggerEmpty": {
+  "message": "Henüz bir şey yok. İsteklerini görmek için sayfayı yenileyin."
+ },
+ "loggerBlocked": {
+  "message": "Engellendi"
+ },
+ "loggerAllowed": {
+  "message": "İzin verildi"
+ },
+ "loggerUrlUnavailable": {
+  "message": "(adres tarayıcı tarafından bildirilmiyor)"
+ },
+ "loggerNoTarget": {
+  "message": "Kayıt defterini bir sitedeyken PrivaBlock düğmesinden açın."
+ },
+ "loggerNote": {
+  "message": "İstekler yalnızca bu sayfa açıkken kaydedilir."
+ },
+ "loggerNoteChromium": {
+  "message": "Chromium, bir isteği hangi listenin engellediğini bildirir ama adresini bildirmez. Yeni eşleşmeler için Yenile'ye basın."
+ }
+}

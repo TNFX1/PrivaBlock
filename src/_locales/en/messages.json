@@ -1,0 +1,290 @@
+{
+ "extName": {
+  "message": "PrivaBlock"
+ },
+ "extDescription": {
+  "message": "Blocks ads and trackers. No account, no analytics."
+ },
+ "popupBlockedOnPage": {
+  "message": "blocked on this page"
+ },
+ "popupBlockedToday": {
+  "message": "Blocked today:"
+ },
+ "popupSiteProtection": {
+  "message": "Protection on this site"
+ },
+ "popupLogger": {
+  "message": "Logger"
+ },
+ "popupSettings": {
+  "message": "Settings"
+ },
+ "popupUnavailable": {
+  "message": "Unavailable"
+ },
+ "stateActive": {
+  "message": "Active"
+ },
+ "stateOff": {
+  "message": "Off"
+ },
+ "popupNotWebPage": {
+  "message": "Not a web page"
+ },
+ "popupSiteOnHint": {
+  "message": "Ads and trackers are blocked"
+ },
+ "popupSiteOffHint": {
+  "message": "Turned off for this site"
+ },
+ "rulesLoading": {
+  "message": "Loading filters…"
+ },
+ "rulesCount": {
+  "message": "$1 rules"
+ },
+ "settingsTitle": {
+  "message": "PrivaBlock settings"
+ },
+ "settingsSubtitle": {
+  "message": "Protection settings"
+ },
+ "updateFilters": {
+  "message": "Update filters"
+ },
+ "updateFiltersHint": {
+  "message": "Download every enabled list again"
+ },
+ "updateFiltersHintBundled": {
+  "message": "Download your custom lists again. Built-in lists update with PrivaBlock itself."
+ },
+ "profileTitle": {
+  "message": "Protection profile"
+ },
+ "profileHint": {
+  "message": "A profile picks a set of filter lists. Balanced suits everyday browsing."
+ },
+ "profile_light": {
+  "message": "Light"
+ },
+ "profile_light_hint": {
+  "message": "Fewer rules, for older or slower computers"
+ },
+ "profile_balanced": {
+  "message": "Balanced"
+ },
+ "profile_balanced_hint": {
+  "message": "Strong protection, few broken sites"
+ },
+ "profile_strict": {
+  "message": "Strict"
+ },
+ "profile_strict_hint": {
+  "message": "Also annoyances and cookie notices; some sites may break"
+ },
+ "profileApplied": {
+  "message": "$1 profile selected"
+ },
+ "listsTitle": {
+  "message": "Filter lists"
+ },
+ "listsHint": {
+  "message": "Lists are downloaded from their publishers and refreshed every day. More lists catch more, but use more memory and break more sites."
+ },
+ "listsHintBundled": {
+  "message": "Lists are built into PrivaBlock and update with it. More lists catch more, but break more sites."
+ },
+ "manyLists": {
+  "message": "Many lists are on. That uses more memory and can break sites; Balanced is usually enough."
+ },
+ "staticLimit": {
+  "message": "The browser refused to turn on all selected lists (its rule limit is shared by all extensions). Turn some lists off."
+ },
+ "group_core": {
+  "message": "Core"
+ },
+ "group_ads": {
+  "message": "Ads"
+ },
+ "group_adsPrivacy": {
+  "message": "Ads & privacy"
+ },
+ "group_privacy": {
+  "message": "Privacy"
+ },
+ "group_compatibility": {
+  "message": "Compatibility"
+ },
+ "group_annoyances": {
+  "message": "Annoyances"
+ },
+ "listFailed": {
+  "message": "Couldn't download: $1"
+ },
+ "listRules": {
+  "message": "$1 rules"
+ },
+ "listCosmetic": {
+  "message": "$1 hiding rules"
+ },
+ "listBundled": {
+  "message": "built in"
+ },
+ "listUpdated": {
+  "message": "updated $1"
+ },
+ "listStale": {
+  "message": "using the last saved copy"
+ },
+ "customTitle": {
+  "message": "Custom filter lists"
+ },
+ "customHint": {
+  "message": "Subscribe to any public Adblock-compatible list by its address."
+ },
+ "customName": {
+  "message": "List name"
+ },
+ "customUrl": {
+  "message": "List address (URL)"
+ },
+ "customAdd": {
+  "message": "Add list"
+ },
+ "customEmpty": {
+  "message": "No custom lists yet."
+ },
+ "customRemoveConfirm": {
+  "message": "Remove “$1”?"
+ },
+ "customRemoved": {
+  "message": "List removed"
+ },
+ "customAdded": {
+  "message": "List added"
+ },
+ "remove": {
+  "message": "Remove"
+ },
+ "myFiltersTitle": {
+  "message": "My filters"
+ },
+ "myFiltersHint": {
+  "message": "One rule per line, in Adblock syntax. Cosmetic rules look like example.com##.advertisement."
+ },
+ "myFiltersApply": {
+  "message": "Apply"
+ },
+ "myFiltersApplied": {
+  "message": "Your filters are applied"
+ },
+ "dynamicLimit": {
+  "message": "The browser allows at most $1 rules from your filters and custom lists; $2 were left out."
+ },
+ "privacyTitle": {
+  "message": "Privacy"
+ },
+ "fingerprintTitle": {
+  "message": "Resist fingerprinting"
+ },
+ "fingerprintHint": {
+  "message": "Turns on Firefox's own fingerprinting resistance. Sites see the UTC time zone and a light theme, and some break. Turning it off gives Firefox's setting back."
+ },
+ "disabledTitle": {
+  "message": "Sites without protection"
+ },
+ "disabledHint": {
+  "message": "Turn protection off for a site from the PrivaBlock button while you're on it."
+ },
+ "disabledEmpty": {
+  "message": "Protection is on everywhere."
+ },
+ "enable": {
+  "message": "Turn on"
+ },
+ "diagnosticsTitle": {
+  "message": "Diagnostics"
+ },
+ "diagnosticsHint": {
+  "message": "The logger, opened from the PrivaBlock button, shows every request of a tab and the filter that decided it."
+ },
+ "diagnosticsHintChromium": {
+  "message": "The logger, opened from the PrivaBlock button, shows the blocked requests of a tab and which list blocked them."
+ },
+ "benchmarkRun": {
+  "message": "Run performance test"
+ },
+ "benchmarkResult": {
+  "message": "$1 checks in $2 ms"
+ },
+ "working": {
+  "message": "Working…"
+ },
+ "actionFailed": {
+  "message": "That didn't work. Try again."
+ },
+ "filtersUpdated": {
+  "message": "Filters updated"
+ },
+ "backgroundUnavailable": {
+  "message": "PrivaBlock isn't responding. Reload the extension."
+ },
+ "loggerTitle": {
+  "message": "PrivaBlock logger"
+ },
+ "loggerFilter": {
+  "message": "Filter"
+ },
+ "loggerRefresh": {
+  "message": "Refresh"
+ },
+ "loggerPause": {
+  "message": "Pause"
+ },
+ "loggerResume": {
+  "message": "Resume"
+ },
+ "loggerClear": {
+  "message": "Clear"
+ },
+ "loggerReload": {
+  "message": "Reload page"
+ },
+ "loggerTime": {
+  "message": "Time"
+ },
+ "loggerAction": {
+  "message": "Result"
+ },
+ "loggerType": {
+  "message": "Type"
+ },
+ "loggerRequest": {
+  "message": "Request"
+ },
+ "loggerFilterCol": {
+  "message": "Filter"
+ },
+ "loggerEmpty": {
+  "message": "Nothing yet. Reload the page to see its requests."
+ },
+ "loggerBlocked": {
+  "message": "Blocked"
+ },
+ "loggerAllowed": {
+  "message": "Allowed"
+ },
+ "loggerUrlUnavailable": {
+  "message": "(address not reported by the browser)"
+ },
+ "loggerNoTarget": {
+  "message": "Open the logger from the PrivaBlock button while viewing a site."
+ },
+ "loggerNote": {
+  "message": "Requests are recorded only while this page is open."
+ },
+ "loggerNoteChromium": {
+  "message": "Chromium reports which list blocked a request, not its address. Press Refresh to load new matches."
+ }
+}
