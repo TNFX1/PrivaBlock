@@ -43,9 +43,23 @@ async function cachedOrFetched(id, url, force) {
   }
 }
 
-/** Rebuild the engine from enabled lists. `force` re-downloads everything. */
+/**
+ * Rebuild the engine from enabled lists. `force` re-downloads everything. A request that arrives
+ * while a rebuild is running is queued (one follow-up run, with the newest settings), never dropped.
+ */
+let queued = null;
+let queuedForce = false;
 function rebuild(force = false) {
-  if (state.loading) return state.loading;
+  if (state.loading) {
+    queuedForce ||= force;
+    queued ??= state.loading.then(() => {
+      const f = queuedForce;
+      queued = null;
+      queuedForce = false;
+      return rebuild(f);
+    });
+    return queued;
+  }
   state.loading = (async () => {
     const s = state.settings;
     const next = new Engine();
@@ -176,7 +190,7 @@ browser.runtime.onConnect.addListener((port) => {
 // ------------------------------------------------------------------ fingerprinting (opt-in)
 
 async function setFingerprint(enabled) {
-  await browser.storage.local.set({ fingerprint: !!enabled });
+  await updateSetting({ fingerprint: !!enabled });
   // Off = give the user's own Firefox setting back, never force it to false.
   if (enabled) await browser.privacy.websites.resistFingerprinting.set({ value: true });
   else await browser.privacy.websites.resistFingerprinting.clear({});
@@ -187,6 +201,13 @@ async function setFingerprint(enabled) {
 async function activeTab() {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   return tab;
+}
+
+/** Save settings and apply them before replying, so the page that asked re-renders the new state. */
+async function updateSetting(values) {
+  await browser.storage.local.set(values);
+  state.settings = await loadSettings(browser.storage.local);
+  if (["profile", "listOverrides", "customLists", "myFilters"].some((k) => k in values)) await rebuild(false).catch(() => {});
 }
 
 const handlers = {
@@ -213,12 +234,12 @@ const handlers = {
 
   async setProfile({ profile }) {
     if (!PROFILES[profile]) return { ok: false };
-    await browser.storage.local.set({ profile, listOverrides: {} });
+    await updateSetting({ profile, listOverrides: {} });
     return { ok: true };
   },
   async setList({ id, enabled }) {
     if (!LISTS[id]) return { ok: false };
-    await browser.storage.local.set({ listOverrides: { ...state.settings.listOverrides, [id]: !!enabled } });
+    await updateSetting({ listOverrides: { ...state.settings.listOverrides, [id]: !!enabled } });
     return { ok: true };
   },
   async updateFilters() {
@@ -228,24 +249,24 @@ const handlers = {
   async addCustomList({ name, url }) {
     if (!/^https?:\/\//i.test(String(url))) return { ok: false };
     const id = `custom_${Date.now().toString(36)}`;
-    await browser.storage.local.set({ customLists: { ...state.settings.customLists, [id]: { id, name: String(name).slice(0, 80), url: String(url), enabled: true } } });
+    await updateSetting({ customLists: { ...state.settings.customLists, [id]: { id, name: String(name).slice(0, 80), url: String(url), enabled: true } } });
     return { ok: true };
   },
   async removeCustomList({ id }) {
     const customLists = { ...state.settings.customLists };
     delete customLists[id];
     await browser.storage.local.remove(`list:${id}`);
-    await browser.storage.local.set({ customLists });
+    await updateSetting({ customLists });
     return { ok: true };
   },
   async toggleCustomList({ id, enabled }) {
     const list = state.settings.customLists[id];
     if (!list) return { ok: false };
-    await browser.storage.local.set({ customLists: { ...state.settings.customLists, [id]: { ...list, enabled: !!enabled } } });
+    await updateSetting({ customLists: { ...state.settings.customLists, [id]: { ...list, enabled: !!enabled } } });
     return { ok: true };
   },
   async saveMyFilters({ text }) {
-    await browser.storage.local.set({ myFilters: String(text || "") });
+    await updateSetting({ myFilters: String(text || "") });
     return { ok: true };
   },
   async setFingerprint({ enabled }) {
@@ -258,7 +279,7 @@ const handlers = {
     const sites = new Set(state.settings.disabledSites);
     if (enabled) sites.delete(site);
     else sites.add(site);
-    await browser.storage.local.set({ disabledSites: [...sites] });
+    await updateSetting({ disabledSites: [...sites] });
     if (Number.isInteger(tabId)) browser.tabs.reload(tabId).catch(() => {});
     return { ok: true };
   },
@@ -302,15 +323,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
   return Promise.resolve(handler(message, sender));
 });
 
-// ------------------------------------------------------------------ settings changes & start-up
-
-browser.storage.onChanged.addListener(async (changes, area) => {
-  if (area !== "local") return;
-  const relevant = ["profile", "listOverrides", "customLists", "myFilters", "disabledSites", "fingerprint"];
-  if (!relevant.some((k) => k in changes)) return;
-  state.settings = await loadSettings(browser.storage.local);
-  if (["profile", "listOverrides", "customLists", "myFilters"].some((k) => k in changes)) rebuild(false).catch(() => {});
-});
+// ------------------------------------------------------------------ start-up
 
 browser.alarms.create("refresh-lists", { periodInMinutes: 360 });
 browser.alarms.onAlarm.addListener((alarm) => {

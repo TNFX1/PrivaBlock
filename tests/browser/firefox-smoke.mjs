@@ -100,8 +100,21 @@ try {
   check("filter lists load", settings.ruleCount > 1000, settings.ruleCount);
   check("balanced profile is the default", settings.profile === "balanced");
   check("fingerprint protection is off by default", settings.fingerprint === false);
+
+  // The popup and settings page re-render straight after a change: the reply must already reflect it.
+  await send("setSiteEnabled", { site: "example.com", enabled: false });
+  const afterSwitch = await send("getSettings");
+  check("site switch is visible as soon as it returns", afterSwitch.disabledSites.includes("example.com"), JSON.stringify(afterSwitch.disabledSites));
+  await send("setSiteEnabled", { site: "example.com", enabled: true });
+
+  // A change made while the lists are rebuilding must still be applied (not dropped).
+  await send("setList", { id: "easyAnnoyances", enabled: true });
   await send("saveMyFilters", { text: "127.0.0.1##.pb-hide-me" });
-  await sleep(1500);
+  for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
+  const afterRebuild = await send("getSettings");
+  check("change during a rebuild is applied", afterRebuild.lists.easyAnnoyances?.ok && afterRebuild.lists.user?.cosmetic === 1, JSON.stringify(afterRebuild.lists.user));
+  await send("setList", { id: "easyAnnoyances", enabled: false });
+  for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
 
   await go(pageUrl);
   await sleep(2500);
