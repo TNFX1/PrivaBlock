@@ -8,7 +8,7 @@
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed; }
 th { position: sticky; top: 59px; text-align: left; font-weight: 600; color: var(--muted); background: var(--bg); padding: 6px 10px; border-bottom: 1px solid var(--line); }
-th:nth-child(1) { width: 84px; } th:nth-child(2) { width: 72px; } th:nth-child(3) { width: 110px; } th:nth-child(5) { width: 30%; }
+th:nth-child(1) { width: 104px; } th:nth-child(2) { width: 72px; } th:nth-child(3) { width: 110px; } th:nth-child(5) { width: 30%; }
 td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
 td.url, td.filter { font-family: var(--mono); font-size: 12px; }
 td small { display: block; font-family: "Plex", system-ui, sans-serif; }

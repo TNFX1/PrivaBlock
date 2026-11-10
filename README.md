@@ -11,6 +11,8 @@
 
 [Install](#install) · [How it works](#how-it-works) · [Privacy](#privacy) · [Build](#build) · [Türkçe](#türkçe)
 
+<img src="docs/images/popup.png" width="800" alt="The PrivaBlock popup on a news page: 46 requests blocked, a row of white quills, today's total, Logger and Settings">
+
 </div>
 
 ## What it does
@@ -19,19 +21,19 @@
 - **Hides leftover ad boxes** on pages (element hiding), including YouTube's ad slots.
 - **Three profiles**: Light, Balanced (default) and Strict, or pick lists one by one.
 - **Your own rules** in Adblock syntax, and any public filter list by URL.
-- **Turn it off per site** from the toolbar button.
+- **Shows what it blocked**: a count on the toolbar icon, and in the popup the page's total with a row
+  of quills, one per blocked request (Firefox also shows today's total).
+- **Turn it off per site** from the switch in the popup.
 - **Logger** that shows what was blocked on a tab and which list blocked it.
+- **Optional fingerprinting protection** on Firefox, off by default.
 - English and Turkish; light and dark theme follow your system.
 
 ## Install
 
-Store listings are not published yet. Until then, download the zip for your browser from
-[Releases](https://github.com/TNFX1/PrivaBlock/releases).
-
 | Browser | How |
 | --- | --- |
-| Chrome, Brave, Edge, Vivaldi, Helium… | Unzip `privablock-chromium-*.zip`, open `chrome://extensions`, turn on *Developer mode*, *Load unpacked*, pick the folder. |
-| Firefox | Firefox only installs signed add-ons permanently. For testing: `about:debugging` → *This Firefox* → *Load Temporary Add-on* → pick `manifest.json` from the unzipped `privablock-firefox-*.zip` (removed when Firefox restarts). |
+| Firefox | [addons.mozilla.org/firefox/addon/privablock](https://addons.mozilla.org/firefox/addon/privablock/) |
+| Chrome, Brave, Edge, Vivaldi, Helium… | Not in the Chrome Web Store yet. Download `privablock-chromium-*.zip` from [Releases](https://github.com/TNFX1/PrivaBlock/releases), unzip it, open `chrome://extensions`, turn on *Developer mode*, *Load unpacked*, pick the folder. |
 
 ## How it works
 
@@ -43,6 +45,7 @@ PrivaBlock works differently in the two browser families, because they give exte
 | Filter lists | Downloaded from their publishers, refreshed daily | Built into the extension, refreshed with each PrivaBlock release (rebuilt weekly) |
 | Your filters & custom lists | Unlimited | Up to the browser's 30,000-rule limit (you're told when it's reached) |
 | Logger | Every request, allowed or blocked, with the matching filter | Blocked requests and the list that blocked them (Chromium doesn't report the address) |
+| Blocked count | Counted by PrivaBlock as it blocks | Toolbar: the browser's own count. Popup: counted live from blocked-request events (`webRequest`, read-only), which also include requests blocked by other content blockers |
 | Fingerprinting protection | Optional: turns on Firefox's own *resist fingerprinting* (off by default) | — |
 
 Supported filter syntax: network filters (`||example.com^`, `$third-party`, `$domain=`, resource types,
@@ -84,11 +87,14 @@ izleyicileri engeller. Hesap, sunucu ve analitik yoktur; ayarlar ve istatistikle
 - uBlock, EasyList, EasyPrivacy, HaGeZi ve AdGuard listeleri; Hafif, Dengeli ve Sıkı profiller
 - Sayfadaki boş reklam kutularını gizleme (YouTube dahil)
 - Kendi kurallarınız ve URL ile eklenen özel listeler
-- Araç çubuğu düğmesinden site bazında kapatma
+- Engellenen istek sayısı araç çubuğu simgesinde ve açılır pencerede; her engellenen istek için bir diken
+- Açılır penceredeki anahtarla site bazında kapatma
+- Firefox'ta isteğe bağlı parmak izi koruması (varsayılan olarak kapalı)
 - Neyin engellendiğini gösteren kayıt defteri
 - Türkçe ve İngilizce arayüz, sisteme uyan açık/koyu tema
 
-Kurulum için yukarıdaki [Install](#install) tablosuna bakın.
+Firefox için: [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/privablock/). Chromium tabanlı
+tarayıcılar için yukarıdaki [Install](#install) tablosuna bakın.
 
 ## License
 
