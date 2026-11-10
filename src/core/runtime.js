@@ -11,7 +11,7 @@ export function today() {
 }
 
 export async function loadSettings(storage) {
-  const s = await storage.get(["profile", "listOverrides", "customLists", "myFilters", "fingerprint", "disabledSites"]);
+  const s = await storage.get(["profile", "listOverrides", "customLists", "myFilters", "fingerprint", "disabledSites", "showBadge"]);
   return {
     profile: PROFILES[s.profile] ? s.profile : DEFAULT_PROFILE,
     listOverrides: s.listOverrides || {},
@@ -19,6 +19,7 @@ export async function loadSettings(storage) {
     myFilters: String(s.myFilters || ""),
     fingerprint: s.fingerprint === true,
     disabledSites: (s.disabledSites || []).map(normalizeHost).filter(Boolean),
+    showBadge: s.showBadge !== false,
   };
 }
 

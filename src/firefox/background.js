@@ -96,6 +96,14 @@ function rebuild(force = false) {
 
 const TYPE_FROM_FIREFOX = { main_frame: "document", sub_frame: "subdocument", beacon: "ping", imageset: "image", xslt: "other", xml_dtd: "other", web_manifest: "other", speculative: "other" };
 
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 function siteDisabled(pageHost) {
   return state.settings.disabledSites.some((d) => domainMatches(pageHost, d));
 }
@@ -123,7 +131,7 @@ browser.webRequest.onBeforeRequest.addListener(onBeforeRequest, { urls: ["http:/
 // ------------------------------------------------------------------ stats & badge
 
 function countBlocked(tabId, n) {
-  if (!Number.isInteger(tabId) || tabId < 0 || n < 1) return;
+  if (!Number.isInteger(tabId) || tabId < 0 || !Number.isInteger(n) || n < 1) return;
   const day = today();
   if (day !== state.day) {
     state.day = day;
@@ -138,8 +146,8 @@ function countBlocked(tabId, n) {
   }, STATS_FLUSH_MS);
 }
 
-function updateBadge(tabId) {
-  const n = state.tabCounts.get(tabId) || 0;
+function updateBadge(tabId, siteOff = false) {
+  const n = siteOff || state.settings?.showBadge === false ? 0 : state.tabCounts.get(tabId) || 0;
   browser.browserAction.setBadgeText({ tabId, text: n ? (n > 999 ? "999+" : String(n)) : "" }).catch(() => {});
 }
 
@@ -207,6 +215,8 @@ async function activeTab() {
 async function updateSetting(values) {
   await browser.storage.local.set(values);
   state.settings = await loadSettings(browser.storage.local);
+  // Also when a site is switched off from Settings, which reloads nothing: its tabs show no count.
+  if ("showBadge" in values || "disabledSites" in values) for (const tab of await browser.tabs.query({})) updateBadge(tab.id, siteDisabled(hostOf(tab.url)));
   if (["profile", "listOverrides", "customLists", "myFilters"].some((k) => k in values)) await rebuild(false).catch(() => {});
 }
 
@@ -271,6 +281,10 @@ const handlers = {
   },
   async setFingerprint({ enabled }) {
     await setFingerprint(enabled);
+    return { ok: true };
+  },
+  async setShowBadge({ enabled }) {
+    await updateSetting({ showBadge: !!enabled });
     return { ok: true };
   },
   async setSiteEnabled({ site, enabled, tabId }) {

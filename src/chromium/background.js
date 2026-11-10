@@ -116,23 +116,147 @@ async function activeTab() {
 
 async function updateSetting(values) {
   await chrome.storage.local.set(values);
+  if ("showBadge" in values) await applyBadgeOption();
   await applyAll(false);
   return { ok: true };
+}
+
+// The popup's per-tab count, kept live from webRequest because getMatchedRules is limited to 20 calls per
+// 10 minutes (declarativeNetRequestFeedback does not lift that) and the open popup asks once a second.
+// tabId -> { doc: top document's documentId, n: requests blocked on it, known: n counts from the document's
+// start, or was seeded from getMatchedRules, pre: { documentId: blocks seen while that document prerendered } }.
+// Kept in storage.session so it outlives the worker's sleep.
+let tabCounts = null;
+function loadTabCounts() {
+  tabCounts ??= chrome.storage.session.get("tabCounts").then(
+    ({ tabCounts: saved = {} }) => new Map(Object.entries(saved).map(([id, c]) => [Number(id), c])),
+    () => {
+      tabCounts = null; // try the read again next time rather than keep the failure
+      return new Map();
+    });
+  return tabCounts;
+}
+// Changes run in event order: each awaits the same loaded Map. Writes are gathered into one per half second,
+// so a page blocking hundreds of requests doesn't make hundreds of writes.
+let saveTimer = null;
+async function changeTabCounts(change) {
+  const counts = await loadTabCounts();
+  change(counts);
+  saveTimer ??= setTimeout(() => {
+    saveTimer = null;
+    chrome.storage.session.set({ tabCounts: Object.fromEntries(counts) }).catch(() => {});
+  }, 500);
+}
+
+// A new top document starts the count again. tabs.onUpdated can't tell: it says "loading" for
+// history.pushState too, where the page (and Chromium's toolbar count) carries on.
+// known: the document's own start (content script), so the count is from the document's start.
+function newDocument(counts, tabId, doc, known) {
+  const c = counts.get(tabId);
+  // doc null: counted before this worker learnt the document (subframe block or seed), so a top-frame block adopts it
+  if (c && (c.doc === doc || (c.doc === null && !known))) return Object.assign(c, { doc, known: c.known || known });
+  return counts.set(tabId, { doc, n: c?.pre?.[doc] || 0, known }).get(tabId); // blocks it made while prerendering
+}
+// A document becoming the page without starting there: a prerendered page activated, or one restored from the
+// back/forward cache. Its count is what it blocked while prerendering (0 after a restore, as Chromium's own count).
+function shownDocument(counts, tabId, doc) {
+  const c = counts.get(tabId);
+  if (c?.doc === doc && !c.known) c.known = true; // its first block got here first and started the count
+  else counts.set(tabId, { doc, n: c?.pre?.[doc] || 0, known: true });
+}
+
+// Registered at the top level so a block wakes the sleeping worker.
+// shortcut: ERR_BLOCKED_BY_CLIENT is what every blocker reports: other extensions (Helium bundles uBlock Origin,
+// so on ad-heavy pages the popup number sitting above the toolbar number is the normal case there) and Chromium's
+// own subresource filter and heavy-ad intervention. Nothing in the event names who blocked, so all are counted;
+// count our own only if Chromium ever says whose.
+chrome.webRequest.onErrorOccurred.addListener((details) => {
+  if (details.error !== "net::ERR_BLOCKED_BY_CLIENT" || details.tabId < 0) return;
+  if (details.documentLifecycle === "prerender") {
+    // shortcut: unproven in a browser (Helium refuses to prerender: PreloadingDisabled); frames nested two deep in a
+    // prerendered page aren't traced to it, so their blocks are left out. Test in Chrome with speculation rules.
+    const doc = details.frameType === "outermost_frame" ? details.documentId : details.parentDocumentId;
+    if (doc) changeTabCounts((counts) => {
+      const c = counts.get(details.tabId) ?? counts.set(details.tabId, { doc: null, n: 0, known: false }).get(details.tabId);
+      c.pre = { ...c.pre, [doc]: (c.pre?.[doc] || 0) + 1 };
+    });
+    return;
+  }
+  if (details.documentLifecycle && details.documentLifecycle !== "active") return; // a page being left or cached
+  changeTabCounts((counts) => {
+    // A block in the top frame can name the new document before the content script does.
+    const c = details.frameId === 0 && details.documentId ? newDocument(counts, details.tabId, details.documentId, false)
+      : counts.get(details.tabId) ?? counts.set(details.tabId, { doc: null, n: 0, known: false }).get(details.tabId);
+    c.n++;
+  });
+}, { urls: ["<all_urls>"] });
+chrome.tabs.onRemoved.addListener((tabId) => changeTabCounts((counts) => counts.delete(tabId)));
+chrome.tabs.onReplaced.addListener((added, removed) => changeTabCounts((counts) => counts.delete(removed)));
+
+const SEED_RETRY_MS = 60_000; // a refused seed is tried again after this, well inside the 20 calls per 10 minutes
+const seedTried = new Map(); // tabId -> when its seed last started; in memory, so a worker that died mid-seed retries
+
+/** Requests blocked on the tab's current document; seeded from getMatchedRules for a tab opened before this worker counted it. */
+async function pageBlockedOnTab(tabId) {
+  const c = (await loadTabCounts()).get(tabId);
+  if (c?.known || Date.now() - (seedTried.get(tabId) || 0) < SEED_RETRY_MS) return c?.n || 0;
+  seedTried.set(tabId, Date.now());
+  const doc = c?.doc ?? null;
+  let seed;
+  try {
+    seed = (await matchedOnTab(tabId)).filter((m) => m.action === "block").length;
+  } catch {
+    return c?.n || 0; // refused (quota): ask again after SEED_RETRY_MS
+  }
+  seedTried.delete(tabId);
+  await changeTabCounts((counts) => {
+    const now = counts.get(tabId);
+    if (!now) return counts.set(tabId, { doc, n: seed, known: true });
+    if (now.known || (now.doc !== doc && doc !== null)) return; // a new document started meanwhile
+    // The seed holds our own blocks only and the live count everyone's (see the shortcut above), so max mixes
+    // the two; it keeps the number from going down, and the blocks counted while it was asked are in the seed.
+    Object.assign(now, { n: Math.max(now.n, seed), known: true });
+  });
+  return (await loadTabCounts()).get(tabId)?.n ?? 0;
+}
+
+/** Rules Chromium matched on a tab since its last navigation, each marked block or allow. */
+async function matchedOnTab(tabId) {
+  const [{ rulesMatchedInfo }, staticIds, dynamic] = await Promise.all([dnr.getMatchedRules({ tabId }), staticAllowIds(), dnr.getDynamicRules()]);
+  const dynamicAllow = new Set(dynamic.filter((r) => r.action.type !== "block").map((r) => `${dnr.DYNAMIC_RULESET_ID}:${r.id}`));
+  const isAllow = (key) => staticIds.has(key) || dynamicAllow.has(key);
+  return rulesMatchedInfo.map((m) => ({
+    time: m.timeStamp, ruleId: m.rule.ruleId,
+    action: isAllow(`${m.rule.rulesetId}:${m.rule.ruleId}`) ? "allow" : "block",
+    source: m.rule.rulesetId === dnr.DYNAMIC_RULESET_ID ? "user" : m.rule.rulesetId,
+  }));
+}
+
+// The toolbar number is Chromium's own count of matched rules. 3.0.0 never showed it: it called
+// setExtensionActionOptions on chrome.action, where it does not exist, instead of declarativeNetRequest.
+// Never rejects, so a browser without the option still starts the worker and runs the other steps.
+async function applyBadgeOption() {
+  try {
+    const { showBadge } = await loadSettings(chrome.storage.local);
+    await dnr.setExtensionActionOptions({ displayActionCountAsBadgeText: showBadge });
+  } catch (error) {
+    console.error("PrivaBlock badge count option failed", error);
+  }
 }
 
 const handlers = {
   getCapabilities: () => ({ browser: "chromium", fingerprint: false, dailyStats: false, fullLogger: false, benchmark: false, bundledLists: true }),
 
-  async getStats() {
-    const tab = await activeTab();
+  // tabId: the popup asks about the active tab; the smoke test names one.
+  async getStats({ tabId } = {}) {
+    const tab = Number.isInteger(tabId) ? await chrome.tabs.get(tabId).catch(() => null) : await activeTab();
     const site = siteForUrl(tab?.url);
     const settings = await loadSettings(chrome.storage.local);
-    // With declarativeNetRequestFeedback the badge holds Chromium's own blocked count, quota-free.
-    const badge = tab ? await chrome.action.getBadgeText({ tabId: tab.id }).catch(() => "") : "";
+    const pageBlocked = tab ? await pageBlockedOnTab(tab.id) : 0;
     return {
       site, tabId: tab?.id, web: !!site,
       siteDisabled: !!site && settings.disabledSites.includes(site),
-      pageBlocked: Number.parseInt(badge, 10) || 0,
+      pageBlocked,
       ruleCount: await enabledRuleCount(settings), loading: false,
     };
   },
@@ -181,6 +305,7 @@ const handlers = {
     return updateSetting({ customLists });
   },
   saveMyFilters: ({ text }) => updateSetting({ myFilters: String(text || "") }),
+  setShowBadge: ({ enabled }) => updateSetting({ showBadge: !!enabled }),
   async setSiteEnabled({ site, enabled, tabId }) {
     site = normalizeHost(site);
     if (!site) return { ok: false };
@@ -198,15 +323,17 @@ const handlers = {
     await chrome.tabs.create({ url: chrome.runtime.getURL(`ui/logger.html?tabId=${tab.id}`) });
     return { ok: true };
   },
-  async getMatched({ tabId }) {
-    const { rulesMatchedInfo } = await dnr.getMatchedRules({ tabId: Number(tabId) });
-    return rulesMatchedInfo.map((m) => ({
-      time: m.timeStamp, action: "block", ruleId: m.rule.ruleId,
-      source: m.rule.rulesetId === dnr.DYNAMIC_RULESET_ID ? "user" : m.rule.rulesetId,
-    }));
-  },
+  getMatched: ({ tabId }) => matchedOnTab(Number(tabId)),
   recordCosmetic: () => ({ ok: true }), // the badge counts network blocks only on Chromium
-  async getCosmetic({ host }) {
+  // From the top frame's content script when its document becomes the page without loading: see shownDocument.
+  newDocument(message, sender) {
+    // No frameId 0 test: a prerendered page's top frame has another frameId, and the content script sends this from the top frame only.
+    if (sender.tab && sender.documentId) changeTabCounts((counts) => shownDocument(counts, sender.tab.id, sender.documentId));
+    return { ok: true };
+  },
+  async getCosmetic({ host }, sender) {
+    // The content script asks at document_start, so this is where a top document's count starts.
+    if (sender.frameId === 0 && sender.tab && sender.documentId) changeTabCounts((counts) => newDocument(counts, sender.tab.id, sender.documentId, true));
     const h = normalizeHost(host);
     const { engine, disabledSites } = await cosmeticEngine();
     if (!h || disabledSites.some((d) => h === d || h.endsWith(`.${d}`))) return { enabled: false, selectors: [] };
@@ -219,6 +346,15 @@ async function bundledCounts() {
   ruleTotals ??= fetch(chrome.runtime.getURL("rulesets/counts.json")).then((r) => r.json()).catch(() => ({}));
   return ruleTotals;
 }
+let staticAllow = null; // "rulesetId:ruleId" of every bundled allow rule; fixed for the build, so built once
+async function staticAllowIds() {
+  staticAllow ??= bundledCounts().then((counts) => {
+    const ids = new Set();
+    for (const [id, c] of Object.entries(counts)) for (const ruleId of c.allowIds || []) ids.add(`${id}:${ruleId}`);
+    return ids;
+  });
+  return staticAllow;
+}
 async function enabledRuleCount(settings) {
   const counts = await bundledCounts();
   const { dynamicStatus = {} } = await chrome.storage.local.get("dynamicStatus");
@@ -227,7 +363,7 @@ async function enabledRuleCount(settings) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const fromExtensionPage = sender.url?.startsWith(chrome.runtime.getURL(""));
-  const contentAllowed = message?.type === "getCosmetic" || message?.type === "recordCosmetic";
+  const contentAllowed = ["getCosmetic", "recordCosmetic", "newDocument"].includes(message?.type);
   const handler = handlers[message?.type];
   if (!handler || (!fromExtensionPage && !contentAllowed)) return false;
   Promise.resolve(handler(message, sender)).then(sendResponse, (error) => sendResponse({ ok: false, error: String(error.message || error) }));
@@ -236,12 +372,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ------------------------------------------------------------------ lifecycle
 
+// On every worker start, not only onInstalled: a browser restart starts the worker without onInstalled.
+applyBadgeOption();
+chrome.action.setBadgeBackgroundColor({ color: "#2f5bea" }).catch(() => {});
+
 chrome.runtime.onInstalled.addListener(async () => {
-  await migrate(chrome.storage.local);
-  await chrome.action.setExtensionActionOptions({ displayActionCountAsBadgeText: true });
-  await chrome.action.setBadgeBackgroundColor({ color: "#2f5bea" });
-  await applyAll(false);
   chrome.alarms.create("refresh-lists", { periodInMinutes: 360 });
+  await migrate(chrome.storage.local).catch((error) => console.error("PrivaBlock migration failed", error));
+  await applyAll(false).catch((error) => console.error("PrivaBlock rule setup failed", error));
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "refresh-lists") applyAll(false).catch(() => {});

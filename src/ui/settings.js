@@ -1,4 +1,4 @@
-import { t, applyI18n, send, $, el, formatNumber, formatTime, switchControl } from "./common.js";
+import { api, t, applyI18n, send, $, el, formatNumber, formatTime, switchControl } from "./common.js";
 import { LISTS, GROUPS, PROFILES } from "../core/lists.js";
 
 let caps = {};
@@ -40,16 +40,33 @@ function listStatus(id) {
   return { text: parts.join(" · ") };
 }
 
+const SECTIONS = ["protection", "lists", "filters", "sites", "about"];
+
+function showSection(name) {
+  if (!SECTIONS.includes(name)) name = "protection";
+  for (const section of document.querySelectorAll("section[data-section]")) section.hidden = section.dataset.section !== name;
+  for (const link of document.querySelectorAll(".side a")) {
+    if (link.hash === `#${name}`) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  scrollTo(0, 0); // "#lists" is also the id of the list container, which the browser would scroll to
+}
+
 function renderProfiles() {
   const root = $("profiles");
-  root.replaceChildren();
-  for (const id of Object.keys(PROFILES)) {
-    const selected = settings.profile === id && !Object.keys(settings.listOverrides).length;
-    root.append(el("button", {
-      type: "button", class: "profile", role: "radio", "aria-checked": String(selected),
-      onclick: () => !selected && change("setProfile", { profile: id }, t("profileApplied", t(`profile_${id}`))),
-    }, el("b", { text: t(`profile_${id}`) }), el("small", { text: t(`profile_${id}_hint`) })));
+  // Built once and only re-checked afterwards, so keyboard focus stays on the radio after a change.
+  if (!root.childElementCount) {
+    for (const id of Object.keys(PROFILES)) {
+      root.append(el("label", { class: "row opt" },
+        el("input", {
+          type: "radio", name: "profile", value: id,
+          onchange: () => change("setProfile", { profile: id }, t("profileApplied", t(`profile_${id}`))),
+        }),
+        el("span", {}, el("b", { text: t(`profile_${id}`) }), el("small", { text: t(`profile_${id}_hint`) }))));
+    }
   }
+  const custom = Object.keys(settings.listOverrides).length > 0;
+  for (const input of root.querySelectorAll("input")) input.checked = !custom && settings.profile === input.value;
 }
 
 function renderLists() {
@@ -113,6 +130,12 @@ async function refresh() {
   $("dynamicLimit").hidden = !d?.truncated;
   if (d?.truncated) $("dynamicLimit").textContent = t("dynamicLimit", formatNumber(d.max), formatNumber(d.truncated));
   $("fingerprint").checked = settings.fingerprint;
+  $("showBadge").checked = settings.showBadge;
+  if (caps.dailyStats) {
+    const s = await send("getStats");
+    $("today").hidden = !s;
+    if (s) $("today").textContent = t("settingsToday", formatNumber(s.dailyBlocked));
+  }
 }
 
 $("update").addEventListener("click", () => change("updateFilters", {}, t("filtersUpdated")));
@@ -123,6 +146,8 @@ $("addListForm").addEventListener("submit", async (event) => {
 });
 $("saveMyFilters").addEventListener("click", () => change("saveMyFilters", { text: $("myFilters").value }, t("myFiltersApplied")));
 $("fingerprint").addEventListener("change", (event) => change("setFingerprint", { enabled: event.target.checked }));
+$("showBadge").addEventListener("change", (event) => change("setShowBadge", { enabled: event.target.checked }));
+addEventListener("hashchange", () => showSection(location.hash.slice(1)));
 $("benchmark").addEventListener("click", async () => {
   $("benchmarkResult").textContent = t("working");
   const r = await send("benchmark");
@@ -131,6 +156,8 @@ $("benchmark").addEventListener("click", async () => {
 
 (async () => {
   applyI18n();
+  showSection(location.hash.slice(1));
+  for (const node of document.querySelectorAll(".version")) node.textContent = t("settingsVersion", api.runtime.getManifest().version);
   caps = (await send("getCapabilities")) || {};
   $("privacySection").hidden = !caps.fingerprint;
   $("benchmark").hidden = !caps.benchmark;

@@ -5,6 +5,8 @@ import { parseList, parseNetworkFilter } from "../src/core/filters.js";
 import { Engine, patternToken } from "../src/core/engine.js";
 import { listToRules, filterToRule } from "../src/core/dnr.js";
 import { enabledLists, PROFILES } from "../src/core/lists.js";
+import { quillCount, quillShape } from "../src/core/quills.js";
+import { loadSettings } from "../src/core/runtime.js";
 
 const engineFor = (text) => {
   const e = new Engine();
@@ -98,4 +100,23 @@ test("profiles and per-list overrides", () => {
   assert.deepEqual(enabledLists("light"), PROFILES.light);
   assert.ok(enabledLists("balanced", { easyCookie: true }).includes("easyCookie"));
   assert.ok(!enabledLists("strict", { adguard: false }).includes("adguard"));
+});
+
+test("quill row fills to 23 then starts again", () => {
+  assert.deepEqual([0, 1, 22, 23, 24, 46, 47, 2300].map(quillCount), [0, 1, 22, 23, 1, 23, 1, 23]);
+});
+
+test("quillShape is stable and in range", () => {
+  for (let i = 0; i < 23; i++) {
+    const a = quillShape(i);
+    assert.deepEqual(a, quillShape(i));
+    assert.ok(a.h >= 11 && a.h <= 26 && a.lean >= 0.35 && a.lean <= 0.75);
+  }
+  assert.notEqual(quillShape(0).h, quillShape(1).h);
+});
+
+test("showBadge defaults on, also for 3.0.0 storage", async () => {
+  const storage = (data) => ({ get: async () => data });
+  assert.equal((await loadSettings(storage({}))).showBadge, true);
+  assert.equal((await loadSettings(storage({ showBadge: false }))).showBadge, false);
 });

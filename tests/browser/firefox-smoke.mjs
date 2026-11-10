@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, rm, mkdir } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
+import { quillCount } from "../../src/core/quills.js";
 
 const root = new URL("../..", import.meta.url).pathname;
 const dark = process.argv.includes("--dark");
@@ -37,6 +38,7 @@ probe("firstPartyImage", "img", "/pixel.png");
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 const server = createServer((req, res) => {
   if (req.url === "/pixel.png") return res.writeHead(200, { "content-type": "image/png" }).end(PIXEL);
+  if (req.url === "/empty") return res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>e</title>nothing to block");
   res.writeHead(200, { "content-type": "text/html" }).end(PAGE);
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -86,8 +88,8 @@ try {
   const { context } = await bidi("browsingContext.create", { type: "tab" });
   await bidi("browsingContext.setViewport", { context, viewport: { width: 900, height: 900 } });
   const go = (url) => bidi("browsingContext.navigate", { context, url, wait: "complete" });
-  const evaluate = async (expression) => (await bidi("script.evaluate", { expression, target: { context }, awaitPromise: true, resultOwnership: "none" })).result;
-  const send = (type, data = {}) => evaluate(`browser.runtime.sendMessage(${JSON.stringify({ type, ...data })}).then(r => JSON.stringify(r))`).then((r) => JSON.parse(r.value));
+  const evaluate = async (expression, ctx = context) => (await bidi("script.evaluate", { expression, target: { context: ctx }, awaitPromise: true, resultOwnership: "none" })).result;
+  const send = (type, data = {}, ctx = context) => evaluate(`browser.runtime.sendMessage(${JSON.stringify({ type, ...data })}).then(r => JSON.stringify(r))`, ctx).then((r) => JSON.parse(r.value));
 
   // Wait until the filter lists are downloaded and compiled.
   await go(`${BASE}/ui/settings.html`);
@@ -125,6 +127,50 @@ try {
   const hidden = (await evaluate("getComputedStyle(document.querySelector('.pb-hide-me')).display")).value;
   check("cosmetic rule from My filters hides the element", hidden === "none", hidden);
 
+  // The popup in a background tab: the test tab stays active, so getStats and the popup describe it.
+  const { context: popup } = await bidi("browsingContext.create", { type: "tab", background: true });
+  await bidi("browsingContext.setViewport", { context: popup, viewport: { width: 290, height: 420 } });
+  await bidi("browsingContext.navigate", { context: popup, url: `${BASE}/ui/popup.html`, wait: "complete" });
+  const stats = await send("getStats", {}, popup);
+  check("popup stats describe the test tab", stats.site === "127.0.0.1" && stats.pageBlocked >= 2, JSON.stringify(stats));
+  const testTab = (await evaluate(`browser.tabs.query({}).then((tabs) => tabs.find((t) => t.url.startsWith(${JSON.stringify(pageUrl)})).id)`, popup)).value;
+  const badge = async () => (await evaluate(`browser.browserAction.getBadgeText({ tabId: ${testTab} })`, popup)).value;
+
+  await send("setShowBadge", { enabled: false }, popup);
+  const badgeOff = (await send("getSettings", {}, popup)).showBadge;
+  const textOff = await badge();
+  check("badge setting off round-trips and clears the badge", badgeOff === false && textOff === "", JSON.stringify({ badgeOff, textOff }));
+  await send("setShowBadge", { enabled: true }, popup);
+  const badgeOn = (await send("getSettings", {}, popup)).showBadge;
+  const textOn = await badge();
+  check("badge setting on round-trips and shows the count", badgeOn === true && textOn !== "", JSON.stringify({ badgeOn, textOn }));
+
+  const popupView = async () => {
+    await sleep(2000); // the popup refreshes once a second
+    return JSON.parse((await evaluate(`JSON.stringify({ state: document.body.dataset.state, site: document.getElementById("site").textContent })`, popup)).value);
+  };
+  await send("setSiteEnabled", { site: "127.0.0.1", enabled: false }, popup);
+  const viewOff = await popupView();
+  const textSiteOff = await badge();
+  await send("setSiteEnabled", { site: "127.0.0.1", enabled: true }, popup);
+  const viewOn = await popupView();
+  const textSiteOn = await badge();
+  const drawn = JSON.parse((await evaluate(`JSON.stringify({ quills: document.querySelectorAll("#quills polygon").length, count: document.getElementById("count").textContent })`, popup)).value);
+  if (shotsDir) {
+    await mkdir(shotsDir, { recursive: true });
+    const { data } = await bidi("browsingContext.captureScreenshot", { context: popup, origin: "document" });
+    await writeFile(`${shotsDir}/firefox-popup-site-${dark ? "dark" : "light"}.png`, Buffer.from(data, "base64"));
+  }
+  check("site disabled: the popup shows the test site as off", viewOff.state === "off" && viewOff.site === "127.0.0.1" && viewOn.state === "on", JSON.stringify({ viewOff, viewOn }));
+  check("site switched off without a reload: the badge is empty, and comes back", textSiteOff === "" && textSiteOn !== "", JSON.stringify({ textSiteOff, textSiteOn }));
+  check("the popup draws one quill per blocked request in the current row", Number(drawn.count) > 0 && drawn.quills === quillCount(Number(drawn.count)), JSON.stringify(drawn));
+
+  await go(`${pageUrl}empty`);
+  await sleep(1000);
+  const empty = await send("getStats", {}, popup);
+  check("a page with nothing blocked counts zero", empty.pageBlocked === 0, JSON.stringify(empty));
+  await bidi("browsingContext.close", { context: popup });
+
   // Per-site switch: turned off → the same page loads the trackers.
   await go(`${BASE}/ui/settings.html`);
   await send("setSiteEnabled", { site: "127.0.0.1", enabled: false });
@@ -138,7 +184,7 @@ try {
   if (shotsDir) {
     await mkdir(shotsDir, { recursive: true });
     const theme = dark ? "dark" : "light";
-    for (const [name, url, w, h] of [["settings", `${BASE}/ui/settings.html`, 900, 1400], ["popup", `${BASE}/ui/popup.html`, 330, 420]]) {
+    for (const [name, url, w, h] of [["settings", `${BASE}/ui/settings.html`, 900, 1400], ["popup", `${BASE}/ui/popup.html`, 290, 420]]) {
       await go(pageUrl); // the viewport can't be set while an extension page is shown
       await bidi("browsingContext.setViewport", { context, viewport: { width: w, height: h } });
       await go(url);

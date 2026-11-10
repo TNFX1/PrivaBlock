@@ -5,12 +5,6 @@
  "extDescription": {
   "message": "Blocks ads and trackers. No account, no analytics."
  },
- "popupBlockedOnPage": {
-  "message": "blocked on this page"
- },
- "popupBlockedToday": {
-  "message": "Blocked today:"
- },
  "popupSiteProtection": {
   "message": "Protection on this site"
  },
@@ -23,20 +17,23 @@
  "popupUnavailable": {
   "message": "Unavailable"
  },
- "stateActive": {
-  "message": "Active"
+ "popupCaption": {
+  "message": "requests blocked on this page"
  },
- "stateOff": {
+ "popupCaptionEmpty": {
+  "message": "Nothing to block on this page yet"
+ },
+ "popupOff": {
   "message": "Off"
  },
- "popupNotWebPage": {
-  "message": "Not a web page"
+ "popupCaptionOff": {
+  "message": "Nothing is blocked on this site"
  },
- "popupSiteOnHint": {
-  "message": "Ads and trackers are blocked"
+ "popupCaptionPage": {
+  "message": "Browser pages can't be filtered"
  },
- "popupSiteOffHint": {
-  "message": "Turned off for this site"
+ "popupToday": {
+  "message": "Today"
  },
  "rulesLoading": {
   "message": "Loading filters…"
@@ -46,9 +43,6 @@
  },
  "settingsTitle": {
   "message": "PrivaBlock settings"
- },
- "settingsSubtitle": {
-  "message": "Protection settings"
  },
  "updateFilters": {
   "message": "Update filters"
@@ -85,9 +79,6 @@
  },
  "profileApplied": {
   "message": "$1 profile selected"
- },
- "listsTitle": {
-  "message": "Filter lists"
  },
  "listsHint": {
   "message": "Lists are downloaded from their publishers and refreshed every day. More lists catch more, but use more memory and break more sites."
@@ -182,17 +173,11 @@
  "dynamicLimit": {
   "message": "The browser allows at most $1 rules from your filters and custom lists; $2 were left out."
  },
- "privacyTitle": {
-  "message": "Privacy"
- },
  "fingerprintTitle": {
   "message": "Resist fingerprinting"
  },
  "fingerprintHint": {
   "message": "Turns on Firefox's own fingerprinting resistance. Sites see the UTC time zone and a light theme, and some break. Turning it off gives Firefox's setting back."
- },
- "disabledTitle": {
-  "message": "Sites without protection"
  },
  "disabledHint": {
   "message": "Turn protection off for a site from the PrivaBlock button while you're on it."
@@ -286,5 +271,32 @@
  },
  "loggerNoteChromium": {
   "message": "Chromium reports which list blocked a request, not its address. Press Refresh to load new matches."
+ },
+ "navProtection": {
+  "message": "Protection"
+ },
+ "navLists": {
+  "message": "Lists"
+ },
+ "navFilters": {
+  "message": "My filters"
+ },
+ "navSites": {
+  "message": "Sites"
+ },
+ "navAbout": {
+  "message": "About"
+ },
+ "settingsToday": {
+  "message": "Today $1 requests were blocked."
+ },
+ "settingsVersion": {
+  "message": "Version $1"
+ },
+ "badgeTitle": {
+  "message": "Show count on the icon"
+ },
+ "badgeHint": {
+  "message": "The number of requests blocked on the page appears on the toolbar icon"
  }
 }

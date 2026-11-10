@@ -57,7 +57,11 @@ async function buildChromiumRulesets(out, manifest) {
     await writeFile(`${out}/rulesets/${id}.json`, JSON.stringify(rules));
     const slim = (r) => ({ hosts: r.hosts, excludedHosts: r.excludedHosts, selector: r.selector });
     await writeFile(`${out}/cosmetic/${id}.json`, JSON.stringify({ cosmetic: parsed.cosmetic.map(slim), exceptions: parsed.cosmeticExceptions.map(slim) }));
-    counts[id] = { rules: parsed.network.length + parsed.hosts.length + parsed.exceptions.length, dnr: rules.length, cosmetic: parsed.cosmetic.length, skipped: skipped + parsed.unsupported };
+    counts[id] = {
+      rules: parsed.network.length + parsed.hosts.length + parsed.exceptions.length, dnr: rules.length, cosmetic: parsed.cosmetic.length, skipped: skipped + parsed.unsupported,
+      // the background counts matched rules as "blocked" only when they aren't allow (exception) rules
+      allowIds: rules.filter((r) => r.action.type !== "block").map((r) => r.id),
+    };
     console.log(`  ${id.padEnd(16)} ${String(rules.length).padStart(7)} DNR rules  ${String(parsed.cosmetic.length).padStart(6)} cosmetic  ${counts[id].skipped} skipped`);
   }
   await writeFile(`${out}/rulesets/counts.json`, JSON.stringify(counts));

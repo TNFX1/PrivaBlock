@@ -8,32 +8,42 @@
 <link rel="stylesheet" href="settings.css">
 </head>
 <body>
-<header class="bar">
-  <div class="brand">
-    <img src="../icons/icon48.png" alt="" width="32" height="32">
-    <div><h1>PrivaBlock</h1><small data-i18n="settingsSubtitle"></small></div>
-  </div>
-  <div class="bar-right">
-    <span id="ruleCount" class="muted"></span>
-    <button id="update" class="btn primary" type="button" data-i18n="updateFilters"></button>
-  </div>
-</header>
+<nav class="side" data-i18n-aria-label="settingsTitle">
+  <div class="brand"><img src="../icons/icon.svg" alt="" width="28" height="28"><span data-i18n="extName">PrivaBlock</span></div>
+  <a href="#protection" data-i18n="navProtection"></a>
+  <a href="#lists" data-i18n="navLists"></a>
+  <a href="#filters" data-i18n="navFilters"></a>
+  <a href="#sites" data-i18n="navSites"></a>
+  <a href="#about" data-i18n="navAbout"></a>
+  <div class="ver version"></div>
+</nav>
 
 <main>
-  <section class="card">
+  <section data-section="protection">
+    <h1 data-i18n="navProtection"></h1>
+    <p id="today" class="lede" hidden></p>
     <h2 data-i18n="profileTitle"></h2>
     <p class="muted" data-i18n="profileHint"></p>
-    <div id="profiles" class="profiles" role="radiogroup" data-i18n-aria-label="profileTitle"></div>
+    <div id="profiles" role="radiogroup" data-i18n-aria-label="profileTitle"></div>
+    <div class="row">
+      <div><b data-i18n="badgeTitle"></b><small data-i18n="badgeHint"></small></div>
+      <label class="switch"><input id="showBadge" type="checkbox" role="switch" data-i18n-aria-label="badgeTitle"><span class="track"></span></label>
+    </div>
+    <div class="row" id="privacySection" hidden>
+      <div><b data-i18n="fingerprintTitle"></b><small data-i18n="fingerprintHint"></small></div>
+      <label class="switch"><input id="fingerprint" type="checkbox" role="switch" data-i18n-aria-label="fingerprintTitle"><span class="track"></span></label>
+    </div>
   </section>
 
-  <section class="card">
-    <h2 data-i18n="listsTitle"></h2>
+  <section data-section="lists" hidden>
+    <h1 data-i18n="navLists"></h1>
+    <div class="row first">
+      <span id="ruleCount" class="muted"></span>
+      <button id="update" class="btn primary" type="button" data-i18n="updateFilters"></button>
+    </div>
     <p class="muted" id="listsHint"></p>
     <p id="listWarning" class="notice warn" hidden></p>
     <div id="lists"></div>
-  </section>
-
-  <section class="card">
     <h2 data-i18n="customTitle"></h2>
     <p class="muted" data-i18n="customHint"></p>
     <form id="addListForm" class="add-list">
@@ -44,29 +54,23 @@
     <div id="customLists" class="rows"></div>
   </section>
 
-  <section class="card">
-    <h2 data-i18n="myFiltersTitle"></h2>
+  <section data-section="filters" hidden>
+    <h1 data-i18n="navFilters"></h1>
     <p class="muted" data-i18n="myFiltersHint"></p>
-    <textarea id="myFilters" rows="8" spellcheck="false" data-i18n-aria-label="myFiltersTitle" placeholder="||ads.example.com^&#10;example.com##.advertisement&#10;@@||trusted.example.com^"></textarea>
+    <textarea id="myFilters" rows="10" spellcheck="false" data-i18n-aria-label="myFiltersTitle" placeholder="||ads.example.com^&#10;example.com##.advertisement&#10;@@||trusted.example.com^"></textarea>
     <p id="dynamicLimit" class="notice warn" hidden></p>
     <div class="row-end"><button id="saveMyFilters" class="btn primary" type="button" data-i18n="myFiltersApply"></button></div>
   </section>
 
-  <section class="card" id="privacySection" hidden>
-    <h2 data-i18n="privacyTitle"></h2>
-    <div class="row">
-      <div><b data-i18n="fingerprintTitle"></b><small data-i18n="fingerprintHint"></small></div>
-      <label class="switch"><input id="fingerprint" type="checkbox" role="switch" data-i18n-aria-label="fingerprintTitle"><span class="track"></span></label>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2 data-i18n="disabledTitle"></h2>
+  <section data-section="sites" hidden>
+    <h1 data-i18n="navSites"></h1>
     <p class="muted" data-i18n="disabledHint"></p>
     <div id="disabledSites" class="rows"></div>
   </section>
 
-  <section class="card">
+  <section data-section="about" hidden>
+    <h1 data-i18n="navAbout"></h1>
+    <p class="version"></p>
     <h2 data-i18n="diagnosticsTitle"></h2>
     <p class="muted" id="diagnosticsHint"></p>
     <div class="row-start">

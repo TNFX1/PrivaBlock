@@ -43,6 +43,14 @@
     return count;
   }
 
+  // The page's blocked count starts again for a document shown without loading: restored from the
+  // back/forward cache, or a prerendered page activated. (Chromium only; Firefox ignores the message.)
+  if (window === window.top) {
+    const shown = () => api.runtime.sendMessage({ type: "newDocument" }).catch(() => {});
+    addEventListener("pageshow", (event) => event.persisted && shown());
+    if (document.prerendering) document.addEventListener("prerenderingchange", shown, { once: true });
+  }
+
   api.runtime.sendMessage({ type: "getCosmetic", host: location.hostname }).then((response) => {
     if (!response?.enabled) {
       builtIn?.remove(); // protection is off for this site

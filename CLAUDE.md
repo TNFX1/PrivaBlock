@@ -8,7 +8,7 @@ Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Version 3.0.
 - `src/firefox/`: MV2, blocking `webRequest`, persistent background page
 - `src/chromium/`: MV3, declarativeNetRequest. Lists are compiled into static rulesets at build time. User filters, custom lists and per-site disable become dynamic rules.
 - `src/content/`: cosmetic filtering
-- `src/ui/`: popup, settings and logger pages. English and Turkish (`src/_locales`), same look as PrivaVault (IBM Plex, light and dark themes).
+- `src/ui/`: popup, settings and logger pages. The popup is a blue field with the page's blocked count and a row of white quills (one per blocked request, at most 23), then (Firefox only) today's total. Ads and trackers are not shown separately. On Chromium the toolbar number is the browser's automatic action count. Settings is a page with a sidebar (Protection, Lists, My filters, Sites, About), one section shown at a time by URL hash. English and Turkish (`src/_locales`), same look as PrivaVault (IBM Plex, light and dark themes).
 - `src/icons/`: `icon.svg` is the source of truth. The PNGs (16/32/48/96/128 px, plus unused `-off` variants) are rendered from it with `rsvg-convert`.
 - `tools/build.mjs`: builds `dist/firefox` and `dist/chromium`. It makes zips only if `zip` is installed; CI makes them.
 - Design spec: `docs/superpowers/specs/2026-11-08-privablock-3-design.md`

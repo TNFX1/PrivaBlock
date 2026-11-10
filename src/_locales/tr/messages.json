@@ -5,12 +5,6 @@
  "extDescription": {
   "message": "Reklamları ve izleyicileri engeller. Hesap ve analitik yok."
  },
- "popupBlockedOnPage": {
-  "message": "bu sayfada engellendi"
- },
- "popupBlockedToday": {
-  "message": "Bugün engellenen:"
- },
  "popupSiteProtection": {
   "message": "Bu sitede koruma"
  },
@@ -23,20 +17,23 @@
  "popupUnavailable": {
   "message": "Kullanılamıyor"
  },
- "stateActive": {
-  "message": "Etkin"
+ "popupCaption": {
+  "message": "istek bu sayfada engellendi"
  },
- "stateOff": {
+ "popupCaptionEmpty": {
+  "message": "Bu sayfada engellenecek bir şey çıkmadı"
+ },
+ "popupOff": {
   "message": "Kapalı"
  },
- "popupNotWebPage": {
-  "message": "Web sayfası değil"
+ "popupCaptionOff": {
+  "message": "Bu sitede hiçbir şey engellenmiyor"
  },
- "popupSiteOnHint": {
-  "message": "Reklam ve izleyiciler engelleniyor"
+ "popupCaptionPage": {
+  "message": "Tarayıcı sayfaları filtrelenemez"
  },
- "popupSiteOffHint": {
-  "message": "Bu site için kapalı"
+ "popupToday": {
+  "message": "Bugün"
  },
  "rulesLoading": {
   "message": "Filtreler yükleniyor…"
@@ -46,9 +43,6 @@
  },
  "settingsTitle": {
   "message": "PrivaBlock ayarları"
- },
- "settingsSubtitle": {
-  "message": "Koruma ayarları"
  },
  "updateFilters": {
   "message": "Filtreleri güncelle"
@@ -85,9 +79,6 @@
  },
  "profileApplied": {
   "message": "$1 profili seçildi"
- },
- "listsTitle": {
-  "message": "Filtre listeleri"
  },
  "listsHint": {
   "message": "Listeler yayıncılarından indirilir ve her gün yenilenir. Daha çok liste daha çok şey yakalar ama daha çok bellek kullanır ve daha çok siteyi bozar."
@@ -182,17 +173,11 @@
  "dynamicLimit": {
   "message": "Tarayıcı, filtrelerinizden ve özel listelerinizden en fazla $1 kurala izin veriyor; $2 kural dışarıda kaldı."
  },
- "privacyTitle": {
-  "message": "Gizlilik"
- },
  "fingerprintTitle": {
   "message": "Parmak izine karşı koruma"
  },
  "fingerprintHint": {
   "message": "Firefox'un kendi parmak izi korumasını açar. Siteler UTC saat dilimini ve açık temayı görür, bazıları bozulur. Kapatınca Firefox'un kendi ayarı geri gelir."
- },
- "disabledTitle": {
-  "message": "Korumasız siteler"
  },
  "disabledHint": {
   "message": "Bir sitede korumayı, o sitedeyken PrivaBlock düğmesinden kapatabilirsiniz."
@@ -286,5 +271,32 @@
  },
  "loggerNoteChromium": {
   "message": "Chromium, bir isteği hangi listenin engellediğini bildirir ama adresini bildirmez. Yeni eşleşmeler için Yenile'ye basın."
+ },
+ "navProtection": {
+  "message": "Koruma"
+ },
+ "navLists": {
+  "message": "Listeler"
+ },
+ "navFilters": {
+  "message": "Filtrelerim"
+ },
+ "navSites": {
+  "message": "Siteler"
+ },
+ "navAbout": {
+  "message": "Hakkında"
+ },
+ "settingsToday": {
+  "message": "Bugün $1 istek engellendi."
+ },
+ "settingsVersion": {
+  "message": "Sürüm $1"
+ },
+ "badgeTitle": {
+  "message": "İkonda sayı göster"
+ },
+ "badgeHint": {
+  "message": "Sayfada engellenen istek sayısı araç çubuğu ikonunda görünür"
  }
 }
