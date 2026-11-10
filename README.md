@@ -11,7 +11,7 @@
 
 [Install](#install) · [How it works](#how-it-works) · [Privacy](#privacy) · [Build](#build) · [Türkçe](#türkçe)
 
-<img src="docs/images/popup.png" width="800" alt="The PrivaBlock popup on a news page: 46 requests blocked, a row of white quills, today's total, Logger and Settings">
+<img src="docs/images/popup.png" width="49%" alt="The PrivaBlock popup on a news page in the light theme: 46 requests blocked, a row of white quills, today's total, Logger and Settings"> <img src="docs/images/popup-dark.png" width="49%" alt="The same popup in the dark theme">
 
 </div>
 
