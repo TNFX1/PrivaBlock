@@ -22,7 +22,10 @@ const check = (name, ok, detail = "") => {
 // ---- test page -------------------------------------------------------------------------------
 const PAGE = `<!doctype html><title>t</title>
 <div class="pb-hide-me">cosmetic target</div>
+<div class="pb-proc">Sponsored content</div>
+<div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div>
 <script>
+window.scriptletEarly = window.pbTest;
 window.results = {};
 function probe(name, tag, url) {
   const el = document.createElement(tag);
@@ -35,6 +38,7 @@ probe("googleAnalytics", "script", "https://www.google-analytics.com/analytics.j
 probe("doubleclick", "script", "https://securepubads.g.doubleclick.net/tag/js/gpt.js");
 probe("firstPartyImage", "img", "/pixel.png");
 </script>`;
+const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)"].join("\n");
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 const server = createServer((req, res) => {
   if (req.url === "/pixel.png") return res.writeHead(200, { "content-type": "image/png" }).end(PIXEL);
@@ -111,10 +115,10 @@ try {
 
   // A change made while the lists are rebuilding must still be applied (not dropped).
   await send("setList", { id: "easyAnnoyances", enabled: true });
-  await send("saveMyFilters", { text: "127.0.0.1##.pb-hide-me" });
+  await send("saveMyFilters", { text: MY_FILTERS });
   for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
   const afterRebuild = await send("getSettings");
-  check("change during a rebuild is applied", afterRebuild.lists.easyAnnoyances?.ok && afterRebuild.lists.user?.cosmetic === 1, JSON.stringify(afterRebuild.lists.user));
+  check("change during a rebuild is applied", afterRebuild.lists.easyAnnoyances?.ok && afterRebuild.lists.user?.cosmetic === 2, JSON.stringify(afterRebuild.lists.user));
   await send("setList", { id: "easyAnnoyances", enabled: false });
   for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
 
@@ -126,6 +130,35 @@ try {
   check("first-party image allowed", probes.firstPartyImage === "loaded", probes.firstPartyImage);
   const hidden = (await evaluate("getComputedStyle(document.querySelector('.pb-hide-me')).display")).value;
   check("cosmetic rule from My filters hides the element", hidden === "none", hidden);
+  const proc = (await evaluate("getComputedStyle(document.querySelector('.pb-proc')).display")).value;
+  check("procedural rule (:has-text) hides the element", proc === "none", proc);
+  const early = (await evaluate("String(window.scriptletEarly)")).value;
+  check("scriptlet runs before the page's first script", early === "true", early);
+
+  // Element picker: started for the active tab, a real click picks, Enter saves the rule.
+  const { context: ctl } = await bidi("browsingContext.create", { type: "tab", background: true });
+  await bidi("browsingContext.navigate", { context: ctl, url: `${BASE}/ui/settings.html`, wait: "complete" });
+  const started = await send("startPicker", {}, ctl);
+  await sleep(500);
+  const box = JSON.parse((await evaluate(`JSON.stringify(document.querySelector(".pb-pick-me").getBoundingClientRect())`)).value);
+  await bidi("input.performActions", { context, actions: [{ type: "pointer", id: "mouse", actions: [
+    { type: "pointerMove", x: Math.round(box.x + 20), y: Math.round(box.y + 20) }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }] }] });
+  await sleep(300);
+  await bidi("input.performActions", { context, actions: [{ type: "key", id: "kb", actions: [{ type: "keyDown", value: "\uE007" }, { type: "keyUp", value: "\uE007" }] }] });
+  for (let i = 0; i < 40 && (await send("getSettings", {}, ctl)).loading; i++) await sleep(500);
+  await sleep(500);
+  const mine = (await send("getSettings", {}, ctl)).myFilters;
+  const pickedHidden = (await evaluate("getComputedStyle(document.querySelector('.pb-pick-me')).display")).value;
+  check("element picker saves a rule and hides the element", started?.ok && /127\.0\.0\.1##.*pb-pick-me/.test(mine) && pickedHidden === "none", JSON.stringify({ started, mine, pickedHidden }));
+
+  // Backup: restoring a file replaces the settings; the original comes back the same way.
+  const before = await send("getSettings", {}, ctl);
+  const imported = await send("importSettings", { data: { app: "PrivaBlock", backup: 1, profile: "light", myFilters: "example.org##.x", disabledSites: ["restored.example"] } }, ctl);
+  const restored = await send("getSettings", {}, ctl);
+  check("a backup file restores settings", imported?.ok && restored.profile === "light" && restored.myFilters === "example.org##.x" && restored.disabledSites.includes("restored.example"), JSON.stringify({ imported, profile: restored.profile }));
+  await send("importSettings", { data: { app: "PrivaBlock", backup: 1, profile: before.profile, listOverrides: before.listOverrides, myFilters: MY_FILTERS, disabledSites: before.disabledSites } }, ctl);
+  for (let i = 0; i < 120 && (await send("getSettings", {}, ctl)).loading; i++) await sleep(1000);
+  await bidi("browsingContext.close", { context: ctl });
 
   // The popup in a background tab: the test tab stays active, so getStats and the popup describe it.
   const { context: popup } = await bidi("browsingContext.create", { type: "tab", background: true });

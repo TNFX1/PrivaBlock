@@ -2,6 +2,7 @@
 // and for cosmetic rules on Chromium). Pure JS: no browser APIs, so it is unit-tested in Node.
 import { domainMatches, normalizeHost, sameSite } from "./psl.js";
 import { patternToRegExp } from "./filters.js";
+import { callKey, scriptletData } from "./scriptlets.js";
 
 const TOKEN = /[a-z0-9%_-]{3,}/g;
 
@@ -83,19 +84,24 @@ export class Engine {
   clear() {
     this.blocks = new FilterIndex();
     this.exceptions = new FilterIndex();
+    this.replacers = new FilterIndex(); // $replace= filters: response bodies to rewrite (Firefox)
     this.blockedHosts = new Map(); // host → source list
     this.cosmeticByHost = new Map(); // host → rules
     this.cosmeticExceptionsByHost = new Map(); // host → Set(selector)
     this.genericCosmeticExceptions = new Set();
-    this.stats = { network: 0, hosts: 0, cosmetic: 0, unsupported: 0 };
+    this.scriptlets = []; // parsed +js rules; looked up per page by the handoff script (see scriptlets.js)
+    this.scriptletExceptions = [];
+    this.stats = { network: 0, hosts: 0, cosmetic: 0, scriptlets: 0, unsupported: 0 };
   }
 
   /** Add one parsed list (output of parseList). */
   add(parsed) {
     for (const f of parsed.network) this.blocks.add(f);
     for (const f of parsed.exceptions) this.exceptions.add(f);
+    for (const f of parsed.replacers || []) this.replacers.add(f);
     for (const h of parsed.hosts) if (!this.blockedHosts.has(h)) this.blockedHosts.set(h, parsed.source);
     this.addCosmetic(parsed.cosmetic, parsed.cosmeticExceptions);
+    this.addScriptlets(parsed.scriptlets, parsed.scriptletExceptions);
     this.stats.network += parsed.network.length;
     this.stats.hosts += parsed.hosts.length;
     this.stats.unsupported += parsed.unsupported || 0;
@@ -111,6 +117,28 @@ export class Engine {
       }
     }
     this.stats.cosmetic += rules.length;
+  }
+
+  addScriptlets(rules = [], exceptions = []) {
+    this.scriptlets.push(...rules);
+    this.scriptletExceptions.push(...exceptions);
+    this.stats.scriptlets += rules.length;
+  }
+
+  /** All scriptlet rules as handoff data (see scriptletData). */
+  scriptletData() {
+    return scriptletData(this.scriptlets, this.scriptletExceptions);
+  }
+
+  /** Scriptlet calls for `host`, after host exclusions and exceptions. */
+  scriptletsFor(value) {
+    const host = normalizeHost(value);
+    const scoped = (r) => (!r.hosts.length || r.hosts.some((d) => domainMatches(host, d))) && !r.excludedHosts.some((d) => domainMatches(host, d));
+    const excepted = new Set(this.scriptletExceptions.filter(scoped).map((e) => callKey(e.call)));
+    if (excepted.has("")) return [];
+    const calls = new Map();
+    for (const r of this.scriptlets) if (scoped(r) && !excepted.has(callKey(r.call))) calls.set(callKey(r.call), r.call);
+    return [...calls.values()];
   }
 
   /**
@@ -133,6 +161,14 @@ export class Engine {
     return block ? { block: true, filter: block } : { block: false, filter: null };
   }
 
+  /** $replace= filters that apply to a request (same arguments as match), in list order. */
+  replacersFor({ url, requestHost, pageHost, type }) {
+    requestHost = normalizeHost(requestHost);
+    pageHost = normalizeHost(pageHost);
+    const ctx = { url, requestHost, pageHost, type, thirdParty: !!pageHost && !sameSite(requestHost, pageHost) };
+    return [...new Set(this.replacers.candidates(requestHost, url))].filter((f) => applies(f, ctx));
+  }
+
   first(index, ctx, extra) {
     for (const f of index.candidates(ctx.requestHost, ctx.url)) {
       if ((!extra || extra(f)) && applies(f, ctx)) return f;
@@ -140,19 +176,28 @@ export class Engine {
     return null;
   }
 
-  /** Selectors to hide on `host`, after host exclusions and #@# exceptions. */
+  /** Selectors to hide on `host`, after host exclusions and #@# exceptions (plain CSS only). */
   cosmeticFor(value) {
+    return this.cosmeticRulesFor(value).filter((r) => !r.procedural).map((r) => r.selector);
+  }
+
+  /** Procedural filters for `host` ({ tasks, action } each, see procedural.js). */
+  proceduralFor(value) {
+    return this.cosmeticRulesFor(value).filter((r) => r.procedural).map((r) => r.procedural);
+  }
+
+  cosmeticRulesFor(value) {
     const host = normalizeHost(value);
     const excepted = new Set(this.genericCosmeticExceptions);
     for (const h of hostAndParents(host)) for (const s of this.cosmeticExceptionsByHost.get(h) || []) excepted.add(s);
-    const selectors = new Set();
+    const rules = new Map();
     for (const h of hostAndParents(host)) {
       for (const rule of this.cosmeticByHost.get(h) || []) {
         if (excepted.has(rule.selector) || rule.excludedHosts.some((x) => domainMatches(host, x))) continue;
-        selectors.add(rule.selector);
+        rules.set(rule.selector, rule);
       }
     }
-    return [...selectors];
+    return [...rules.values()];
   }
 }
 

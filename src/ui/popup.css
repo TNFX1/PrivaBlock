@@ -7,6 +7,7 @@
 
 html, body { background: var(--panel); }
 body { width: 290px; line-height: 1.4; }
+@media (pointer: coarse) { body { width: auto; } } /* Firefox for Android shows the popup as a full page */
 
 .field { position: relative; background: var(--field); color: #fff; padding: 14px 16px 0; }
 .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 20px; }

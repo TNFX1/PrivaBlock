@@ -1,5 +1,6 @@
 import { api, t, applyI18n, send, $, el, formatNumber, formatTime, switchControl } from "./common.js";
 import { LISTS, GROUPS, PROFILES } from "../core/lists.js";
+import { backupOf } from "../core/runtime.js";
 
 let caps = {};
 let settings = null;
@@ -147,6 +148,24 @@ $("addListForm").addEventListener("submit", async (event) => {
 $("saveMyFilters").addEventListener("click", () => change("saveMyFilters", { text: $("myFilters").value }, t("myFiltersApplied")));
 $("fingerprint").addEventListener("change", (event) => change("setFingerprint", { enabled: event.target.checked }));
 $("showBadge").addEventListener("change", (event) => change("setShowBadge", { enabled: event.target.checked }));
+$("exportSettings").addEventListener("click", () => {
+  const blob = new Blob([`${JSON.stringify(backupOf(settings), null, 2)}\n`], { type: "application/json" });
+  const link = el("a", { href: URL.createObjectURL(blob), download: `privablock-backup-${new Date().toISOString().slice(0, 10)}.json` });
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+$("importSettings").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  let data = null;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {}
+  if (data?.app !== "PrivaBlock") return toast(t("backupInvalid"), true);
+  if (confirm(t("backupConfirm"))) await change("importSettings", { data }, t("backupImported"));
+});
 addEventListener("hashchange", () => showSection(location.hash.slice(1)));
 $("benchmark").addEventListener("click", async () => {
   $("benchmarkResult").textContent = t("working");
@@ -162,6 +181,7 @@ $("benchmark").addEventListener("click", async () => {
   $("privacySection").hidden = !caps.fingerprint;
   $("benchmark").hidden = !caps.benchmark;
   $("listsHint").textContent = t(caps.bundledLists ? "listsHintBundled" : "listsHint");
+  $("shortcutsHint").textContent = t(caps.browser === "firefox" ? "shortcutsHintFirefox" : "shortcutsHintChromium");
   $("diagnosticsHint").textContent = t(caps.fullLogger ? "diagnosticsHint" : "diagnosticsHintChromium");
   $("update").title = t(caps.bundledLists ? "updateFiltersHintBundled" : "updateFiltersHint");
   await refresh();

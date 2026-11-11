@@ -19,6 +19,7 @@ function render(s, c) {
   $("count").textContent = state === "off" ? t("popupOff") : formatNumber(s?.pageBlocked);
   $("caption").textContent = t(CAPTIONS[state]);
   $("todayRow").hidden = !(s && c?.dailyStats);
+  $("picker").hidden = state === "page" || state === "off" || state === "unavailable";
   $("today").textContent = formatNumber(s?.dailyBlocked);
   drawQuills(state === "on" ? quillCount(s.pageBlocked) : 0);
 }
@@ -60,6 +61,10 @@ $("siteSwitch").addEventListener("change", async (event) => {
   await send("setSiteEnabled", { site: stats.site, enabled: event.target.checked, tabId: stats.tabId });
   pending--;
   await refresh();
+});
+$("picker").addEventListener("click", async () => {
+  const res = await send("startPicker");
+  if (res?.ok) window.close();
 });
 $("logger").addEventListener("click", async () => {
   await send("openLogger");

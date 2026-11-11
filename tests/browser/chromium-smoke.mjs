@@ -21,7 +21,9 @@ const check = (name, ok, detail = "") => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PAGE = `<!doctype html><title>t</title><div class="pb-hide-me">cosmetic target</div><script>
+const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)"].join("\n");
+const PAGE = `<!doctype html><title>t</title><div class="pb-hide-me">cosmetic target</div>
+<div class="pb-proc">Sponsored content</div><div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div><script>
 window.results = {};
 function probe(name, tag, url) { const el = document.createElement(tag); el.onload = () => (results[name] = "loaded"); el.onerror = () => (results[name] = "blocked"); el.src = url; document.body.appendChild(el); }
 probe("googleAnalytics", "script", "https://www.google-analytics.com/analytics.js");
@@ -122,7 +124,9 @@ try {
   check("bundled rulesets enabled", settings?.ruleCount > 1000, settings?.ruleCount);
   check("no static ruleset error", !settings?.staticError, settings?.staticError);
   check("balanced profile is the default", settings?.profile === "balanced");
-  await send("saveMyFilters", { text: "127.0.0.1##.pb-hide-me" });
+  await send("saveMyFilters", { text: MY_FILTERS });
+  const registered = await evaluate("chrome.scripting.getRegisteredContentScripts().then((s) => s.filter((c) => c.id.startsWith('sl-')).length)");
+  check("bundled lists' scriptlets are registered", registered > 0, registered);
 
   await go(pageUrl);
   let probes;
@@ -132,6 +136,41 @@ try {
   check("DoubleClick blocked", probes.doubleclick === "blocked", probes.doubleclick);
   check("first-party image allowed", probes.firstPartyImage === "loaded", probes.firstPartyImage);
   check("cosmetic rule from My filters hides the element", (await evaluate("getComputedStyle(document.querySelector('.pb-hide-me')).display")) === "none");
+  check("procedural rule (:has-text) hides the element", (await evaluate("getComputedStyle(document.querySelector('.pb-proc')).display")) === "none");
+  // My filters reach the page by message on Chromium: after its first scripts, so read the value later.
+  check("scriptlet from My filters runs in the page", (await evaluate("String(window.pbTest)")) === "true");
+
+  // Element picker: started for the active tab from an extension page, a real click picks, Enter saves.
+  {
+    const ctlTarget = await json(`/json/new?${BASE}/ui/settings.html`, "PUT");
+    const ctl = await connect(ctlTarget.webSocketDebuggerUrl);
+    await page.call("Page.bringToFront");
+    await sleep(1000);
+    const ask = (type, data = {}) => ctl.call("Runtime.evaluate", { expression: `chrome.runtime.sendMessage(${JSON.stringify({ type, ...data })})`, awaitPromise: true, returnByValue: true }).then((r) => r.result.value);
+    const started = await ask("startPicker");
+    await sleep(500);
+    const box = await evaluate(`JSON.parse(JSON.stringify(document.querySelector(".pb-pick-me").getBoundingClientRect()))`);
+    const at = { x: Math.round(box.x + 20), y: Math.round(box.y + 20) };
+    await page.call("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await page.call("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await page.call("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    await sleep(300);
+    await page.call("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await page.call("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await sleep(1500);
+    const mine = (await ask("getSettings")).myFilters;
+    const pickedHidden = await evaluate("getComputedStyle(document.querySelector('.pb-pick-me')).display");
+    check("element picker saves a rule and hides the element", started?.ok && /127\.0\.0\.1##.*pb-pick-me/.test(mine) && pickedHidden === "none", JSON.stringify({ started, mine, pickedHidden }));
+
+    const before = await ask("getSettings");
+    const imported = await ask("importSettings", { data: { app: "PrivaBlock", backup: 1, profile: "light", myFilters: "example.org##.x", disabledSites: ["restored.example"] } });
+    const restored = await ask("getSettings");
+    check("a backup file restores settings", imported?.ok && restored.profile === "light" && restored.myFilters === "example.org##.x" && restored.disabledSites.includes("restored.example"), JSON.stringify({ imported, profile: restored?.profile }));
+    await ask("importSettings", { data: { app: "PrivaBlock", backup: 1, profile: before.profile, listOverrides: before.listOverrides, myFilters: MY_FILTERS, disabledSites: before.disabledSites } });
+    ctl.close();
+    await json(`/json/close/${ctlTarget.id}`).catch(() => {});
+    await page.call("Page.bringToFront");
+  }
 
   // The popup's "blocked on this page" count, asked from an extension page about the test tab.
   const statsTarget = await json(`/json/new?${BASE}/ui/settings.html`, "PUT");

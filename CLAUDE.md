@@ -1,13 +1,14 @@
 # PrivaBlock
 
-Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Version 3.0.0, `main` branch, no release tag yet.
+Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Version 3.1.0 on `main` (3.0.0 is on AMO).
 
 ## Layout
 
 - `src/core/`: shared engine (filter parser, matcher, public suffix list, list catalog, DNR conversion, settings)
 - `src/firefox/`: MV2, blocking `webRequest`, persistent background page
 - `src/chromium/`: MV3, declarativeNetRequest. Lists are compiled into static rulesets at build time. User filters, custom lists and per-site disable become dynamic rules.
-- `src/content/`: cosmetic filtering
+- `src/content/`: cosmetic filtering (`content.js`), procedural filters (`procedural.js`, same isolated world), scriptlets (`scriptlets-main.js`, world MAIN; the calls reach it through a `data-privablock-sl` attribute + event from the isolated-world handoff in `src/core/scriptlets.js`), element picker (`picker.js`, injected on demand; the background builds the `host##selector` rule from the sender's URL).
+- Scriptlet delivery: Firefox registers handoff code per shard of hosts with `contentScripts.register`; Chromium registers `scriptlets/<list>-<n>.js` (built by `tools/build.mjs`) with `scripting.registerContentScripts`. Chromium user filters/custom lists send their scriptlets with the `getCosmetic` reply (late). Only names in `src/core/scriptlets.js` are parsed; `trusted-*` is never.
 - `src/ui/`: popup, settings and logger pages. The popup is a blue field with the page's blocked count and a row of white quills (one per blocked request, at most 23), then (Firefox only) today's total. Ads and trackers are not shown separately. On Chromium the toolbar number is the browser's automatic action count. Settings is a page with a sidebar (Protection, Lists, My filters, Sites, About), one section shown at a time by URL hash. English and Turkish (`src/_locales`), same look as PrivaVault (IBM Plex, light and dark themes).
 - `src/icons/`: `icon.svg` is the source of truth. The PNGs (16/32/48/96/128 px, plus unused `-off` variants) are rendered from it with `rsvg-convert`.
 - `tools/build.mjs`: builds `dist/firefox` and `dist/chromium`. It makes zips only if `zip` is installed; CI makes them.
@@ -36,5 +37,5 @@ Requires Node 22 or newer.
 
 ## Open items
 
-- Tag v3.0.0 (CI creates the GitHub release with both zips).
+- Push tag v3.0.0 (CI creates the GitHub release with both zips), then v3.1.0 when 3.1.0 ships.
 - Store publishing: Firefox needs AMO signing for a permanent install; Chrome Web Store. Check each store's AI-content policy before submitting.

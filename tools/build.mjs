@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { parseList } from "../src/core/filters.js";
 import { listToRules } from "../src/core/dnr.js";
 import { LISTS, PROFILES, DEFAULT_PROFILE } from "../src/core/lists.js";
+import { scriptletData, handoffCode, scriptletShards } from "../src/core/scriptlets.js";
 
 const root = new URL("..", import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -44,25 +45,38 @@ async function listText(id, url) {
       await new Promise((r) => setTimeout(r, attempt * 3000));
     }
   }
+  // A list server that is down (filters.adtidy.org often is) shouldn't fail the build when a copy is cached.
+  if (existsSync(cache)) {
+    console.warn(`  ${id}: download failed (${lastError.message}), using the cached copy`);
+    return readFile(cache, "utf8");
+  }
   throw new Error(`${id}: ${lastError.message}`);
 }
 
 async function buildChromiumRulesets(out, manifest) {
   await mkdir(`${out}/rulesets`);
   await mkdir(`${out}/cosmetic`);
+  await mkdir(`${out}/scriptlets`);
   const counts = {};
-  for (const [id, { url }] of Object.entries(LISTS)) {
-    const parsed = parseList(await listText(id, url), id);
+  const parsedLists = {};
+  for (const [id, { url }] of Object.entries(LISTS)) parsedLists[id] = parseList(await listText(id, url), id);
+  // Scriptlet exceptions of every bundled list go into every list's handoff script: an exception only
+  // ever turns a call off, and the lists are enabled one by one.
+  const scriptletExceptions = Object.values(parsedLists).flatMap((p) => p.scriptletExceptions);
+  for (const [id, parsed] of Object.entries(parsedLists)) {
     const { rules, skipped } = listToRules(parsed);
     await writeFile(`${out}/rulesets/${id}.json`, JSON.stringify(rules));
-    const slim = (r) => ({ hosts: r.hosts, excludedHosts: r.excludedHosts, selector: r.selector });
+    const slim = (r) => ({ hosts: r.hosts, excludedHosts: r.excludedHosts, selector: r.selector, ...(r.procedural ? { procedural: r.procedural } : {}) });
     await writeFile(`${out}/cosmetic/${id}.json`, JSON.stringify({ cosmetic: parsed.cosmetic.map(slim), exceptions: parsed.cosmeticExceptions.map(slim) }));
+    const shards = scriptletShards(scriptletData(parsed.scriptlets, scriptletExceptions));
+    for (const [i, shard] of shards.entries()) await writeFile(`${out}/scriptlets/${id}-${i}.js`, handoffCode(shard.data));
     counts[id] = {
+      scriptletShards: shards.map((s) => s.matches), // shard i of list id is scriptlets/<id>-<i>.js
       rules: parsed.network.length + parsed.hosts.length + parsed.exceptions.length, dnr: rules.length, cosmetic: parsed.cosmetic.length, skipped: skipped + parsed.unsupported,
       // the background counts matched rules as "blocked" only when they aren't allow (exception) rules
       allowIds: rules.filter((r) => r.action.type !== "block").map((r) => r.id),
     };
-    console.log(`  ${id.padEnd(16)} ${String(rules.length).padStart(7)} DNR rules  ${String(parsed.cosmetic.length).padStart(6)} cosmetic  ${counts[id].skipped} skipped`);
+    console.log(`  ${id.padEnd(16)} ${String(rules.length).padStart(7)} DNR rules  ${String(parsed.cosmetic.length).padStart(6)} cosmetic  ${String(parsed.scriptlets.length).padStart(5)} scriptlets  ${counts[id].skipped} skipped`);
   }
   await writeFile(`${out}/rulesets/counts.json`, JSON.stringify(counts));
   manifest.declarative_net_request.rule_resources = Object.keys(LISTS).map((id) => ({

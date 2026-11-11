@@ -4,8 +4,9 @@ import { Engine } from "../core/engine.js";
 import { parseList } from "../core/filters.js";
 import { LISTS, PROFILES, enabledLists } from "../core/lists.js";
 import { listToRules, siteDisabledRule } from "../core/dnr.js";
-import { normalizeHost } from "../core/psl.js";
-import { loadSettings, migrate, fetchList, siteForUrl } from "../core/runtime.js";
+import { normalizeHost, domainMatches } from "../core/psl.js";
+import { loadSettings, migrate, fetchList, siteForUrl, pickerFilter, withFilter, backupValues } from "../core/runtime.js";
+import { hostMatches } from "../core/scriptlets.js";
 
 const dnr = chrome.declarativeNetRequest;
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -75,7 +76,26 @@ async function applyAll(force = false) {
   const settings = await loadSettings(chrome.storage.local);
   await applyStaticRulesets(settings);
   await applyDynamicRules(settings, force);
+  await applyScriptlets(settings);
   cosmetic = null;
+}
+
+// Each bundled list's scriptlets are handoff scripts built by tools/build.mjs (scriptlets/<id>-<n>.js, one per
+// shard of hosts), registered for the hosts they have calls for, so the calls reach the page at document_start.
+async function applyScriptlets(settings) {
+  const counts = await bundledCounts();
+  const excludeMatches = hostMatches(settings.disabledSites);
+  const scripts = enabledLists(settings.profile, settings.listOverrides).flatMap((id) => (counts[id]?.scriptletShards || []).map((matches, i) => ({
+    id: `sl-${id}-${i}`, js: [`scriptlets/${id}-${i}.js`], matches,
+    ...(excludeMatches.length ? { excludeMatches } : {}), runAt: "document_start", allFrames: true, persistAcrossSessions: true,
+  })));
+  try {
+    const old = (await chrome.scripting.getRegisteredContentScripts()).filter((c) => c.id.startsWith("sl-"));
+    if (old.length) await chrome.scripting.unregisterContentScripts({ ids: old.map((c) => c.id) });
+    if (scripts.length) await chrome.scripting.registerContentScripts(scripts);
+  } catch (error) {
+    console.error("PrivaBlock scriptlet registration failed", error);
+  }
 }
 
 // ------------------------------------------------------------------ cosmetic filtering
@@ -87,7 +107,7 @@ async function cosmeticEngine() {
     for (const id of enabledLists(settings.profile, settings.listOverrides)) {
       try {
         const data = await (await fetch(chrome.runtime.getURL(`cosmetic/${id}.json`))).json();
-        engine.addCosmetic(data.cosmetic, data.exceptions);
+        engine.addCosmetic(data.cosmetic, data.exceptions); // scriptlets of bundled lists are registered instead
       } catch {
         // list without cosmetic rules
       }
@@ -101,6 +121,7 @@ async function cosmeticEngine() {
     for (const text of texts) {
       const parsed = parseList(text, "user");
       engine.addCosmetic(parsed.cosmetic, parsed.cosmeticExceptions);
+      engine.addScriptlets(parsed.scriptlets, parsed.scriptletExceptions);
     }
     return { engine, disabledSites: settings.disabledSites };
   })();
@@ -315,6 +336,7 @@ const handlers = {
     else sites.add(site);
     await updateSetting({ disabledSites: [...sites] });
     if (Number.isInteger(tabId)) chrome.tabs.reload(tabId).catch(() => {});
+    else await clearSiteBadges(site, enabled);
     return { ok: true };
   },
   async openLogger() {
@@ -337,7 +359,25 @@ const handlers = {
     const h = normalizeHost(host);
     const { engine, disabledSites } = await cosmeticEngine();
     if (!h || disabledSites.some((d) => h === d || h.endsWith(`.${d}`))) return { enabled: false, selectors: [] };
-    return { enabled: true, selectors: engine.cosmeticFor(h) };
+    return { enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h), scriptlets: engine.scriptletsFor(h) };
+  },
+  async startPicker() {
+    return startPicker(await activeTab());
+  },
+  // From the picker in a page: the rule is built here, for the page the message came from.
+  async pickerCreate({ selector }, sender) {
+    const filter = sender.frameId === 0 && pickerFilter(sender.url, selector);
+    if (!filter) return { ok: false };
+    const { myFilters } = await loadSettings(chrome.storage.local);
+    await updateSetting({ myFilters: withFilter(myFilters, filter) });
+    return { ok: true, filter };
+  },
+  async importSettings({ data }) {
+    const values = backupValues(data);
+    if (!values) return { ok: false };
+    delete values.fingerprint; // Firefox only
+    await updateSetting(values);
+    return { ok: true };
   },
 };
 
@@ -363,11 +403,43 @@ async function enabledRuleCount(settings) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const fromExtensionPage = sender.url?.startsWith(chrome.runtime.getURL(""));
-  const contentAllowed = ["getCosmetic", "recordCosmetic", "newDocument"].includes(message?.type);
+  const contentAllowed = ["getCosmetic", "recordCosmetic", "newDocument", "pickerCreate"].includes(message?.type);
   const handler = handlers[message?.type];
   if (!handler || (!fromExtensionPage && !contentAllowed)) return false;
   Promise.resolve(handler(message, sender)).then(sendResponse, (error) => sendResponse({ ok: false, error: String(error.message || error) }));
   return true; // async response
+});
+
+// A site switched off from Settings reloads nothing, and Chromium keeps its automatic toolbar count for
+// the open tabs. Text set for a tab wins over that count until the tab navigates; null hands it back.
+async function clearSiteBadges(site, enabled) {
+  for (const tab of await chrome.tabs.query({})) {
+    const tabSite = siteForUrl(tab.url);
+    if (!tabSite || !domainMatches(tabSite, site)) continue;
+    // A browser that refuses null throws before returning a promise.
+    await Promise.resolve().then(() => chrome.action.setBadgeText({ tabId: tab.id, text: enabled ? null : "" })).catch(() => {});
+  }
+}
+
+// ------------------------------------------------------------------ element picker & shortcuts
+
+async function startPicker(tab) {
+  const site = siteForUrl(tab?.url);
+  const { disabledSites } = await loadSettings(chrome.storage.local);
+  if (!site || disabledSites.some((d) => domainMatches(site, d))) return { ok: false };
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/picker.js"] });
+  return { ok: true };
+}
+
+chrome.commands.onCommand.addListener(async (command, tab) => {
+  tab ??= await activeTab();
+  if (command === "pick-element") startPicker(tab).catch(() => {});
+  if (command === "toggle-site") {
+    const site = siteForUrl(tab?.url);
+    if (!site) return;
+    const { disabledSites } = await loadSettings(chrome.storage.local);
+    handlers.setSiteEnabled({ site, enabled: disabledSites.includes(site), tabId: tab.id }).catch(() => {});
+  }
 });
 
 // ------------------------------------------------------------------ lifecycle

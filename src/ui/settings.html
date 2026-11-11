@@ -71,6 +71,15 @@
   <section data-section="about" hidden>
     <h1 data-i18n="navAbout"></h1>
     <p class="version"></p>
+    <h2 data-i18n="backupTitle"></h2>
+    <p class="muted" data-i18n="backupHint"></p>
+    <div class="row-start">
+      <button id="exportSettings" class="btn" type="button" data-i18n="backupExport"></button>
+      <button id="importSettings" class="btn" type="button" data-i18n="backupImport"></button>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </div>
+    <h2 data-i18n="shortcutsTitle"></h2>
+    <p class="muted" id="shortcutsHint"></p>
     <h2 data-i18n="diagnosticsTitle"></h2>
     <p class="muted" id="diagnosticsHint"></p>
     <div class="row-start">

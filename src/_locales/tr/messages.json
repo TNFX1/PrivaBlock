@@ -298,5 +298,68 @@
  },
  "badgeHint": {
   "message": "Sayfada engellenen istek sayısı araç çubuğu ikonunda görünür"
+ },
+ "popupPicker": {
+  "message": "Bir öğeyi gizle"
+ },
+ "pickerTitle": {
+  "message": "Bir öğeyi gizle"
+ },
+ "pickerHint": {
+  "message": "Sayfada gizlemek istediğiniz yere tıklayın. Esc ile vazgeçin."
+ },
+ "pickerSelector": {
+  "message": "Seçici"
+ },
+ "pickerMatches": {
+  "message": "Bu sayfada $1 öğeyle eşleşiyor"
+ },
+ "pickerInvalid": {
+  "message": "Geçerli bir seçici değil"
+ },
+ "pickerWider": {
+  "message": "Genişlet"
+ },
+ "pickerCreate": {
+  "message": "Gizle"
+ },
+ "pickerCancel": {
+  "message": "Vazgeç"
+ },
+ "commandPick": {
+  "message": "Bu sayfada bir öğeyi gizle"
+ },
+ "commandToggle": {
+  "message": "Bu sitede korumayı aç veya kapat"
+ },
+ "backupTitle": {
+  "message": "Yedek"
+ },
+ "backupHint": {
+  "message": "Profilinizi, listelerinizi, filtrelerinizi ve kapattığınız siteleri bir dosyaya kaydedin ya da bir dosyadan geri yükleyin."
+ },
+ "backupExport": {
+  "message": "Dosyaya kaydet"
+ },
+ "backupImport": {
+  "message": "Dosyadan geri yükle"
+ },
+ "backupInvalid": {
+  "message": "Bu bir PrivaBlock yedek dosyası değil"
+ },
+ "backupConfirm": {
+  "message": "Şu anki ayarlarınız bu dosyadakilerle değiştirilsin mi?"
+ },
+ "backupImported": {
+  "message": "Ayarlar geri yüklendi"
+ },
+ "shortcutsTitle": {
+  "message": "Klavye kısayolları"
+ },
+ "shortcutsHintFirefox": {
+  "message": "Alt+Shift+H bir öğeyi gizler. Bunu değiştirmek veya siteyi açıp kapatan bir kısayol eklemek için: about:addons → dişli menüsü → Eklenti kısayollarını yönet."
+ },
+ "shortcutsHintChromium": {
+  "message": "Alt+Shift+H bir öğeyi gizler. Bunu değiştirmek veya siteyi açıp kapatan bir kısayol eklemek için: chrome://extensions/shortcuts."
  }
 }

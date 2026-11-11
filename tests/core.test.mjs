@@ -6,7 +6,10 @@ import { Engine, patternToken } from "../src/core/engine.js";
 import { listToRules, filterToRule } from "../src/core/dnr.js";
 import { enabledLists, PROFILES } from "../src/core/lists.js";
 import { quillCount, quillShape } from "../src/core/quills.js";
-import { loadSettings } from "../src/core/runtime.js";
+import { loadSettings, pickerFilter, withFilter, backupOf, backupValues } from "../src/core/runtime.js";
+import { parseScriptletCall, scriptletData, scriptletShards, hostMatches } from "../src/core/scriptlets.js";
+import { parseProcedural, isProcedural } from "../src/core/procedural.js";
+import { parseCosmeticFilter } from "../src/core/filters.js";
 
 const engineFor = (text) => {
   const e = new Engine();
@@ -119,4 +122,90 @@ test("showBadge defaults on, also for 3.0.0 storage", async () => {
   const storage = (data) => ({ get: async () => data });
   assert.equal((await loadSettings(storage({}))).showBadge, true);
   assert.equal((await loadSettings(storage({ showBadge: false }))).showBadge, false);
+});
+
+test("scriptlet calls: aliases, escaped commas, quotes, unknown and trusted names", () => {
+  assert.deepEqual(parseScriptletCall("set, a.b, true"), ["set-constant", "a.b", "true"]);
+  assert.deepEqual(parseScriptletCall("acs, document.write, /ad\\,s/"), ["abort-current-script", "document.write", "/ad,s/"]);
+  assert.deepEqual(parseScriptletCall("nostif.js, '1, 2', 500"), ["no-setTimeout-if", "1, 2", "500"]);
+  assert.deepEqual(parseScriptletCall(""), []);
+  assert.equal(parseScriptletCall("nobab"), null);
+  assert.equal(parseScriptletCall("trusted-set-cookie, a, b"), null);
+});
+
+test("scriptlets: host scope, exclusions and #@#+js exceptions", () => {
+  const e = engineFor(["example.com,~shop.example.com##+js(set, ads, false)", "example.com##+js(nowoif)", "blog.example.com#@#+js(nowoif)", "quiet.example.com#@#+js()", "##+js(nowoif)"].join("\n"));
+  assert.deepEqual(e.scriptletsFor("www.example.com"), [["set-constant", "ads", "false"], ["no-window-open-if"]]);
+  assert.deepEqual(e.scriptletsFor("shop.example.com"), [["no-window-open-if"]]);
+  assert.deepEqual(e.scriptletsFor("blog.example.com"), [["set-constant", "ads", "false"]]);
+  assert.deepEqual(e.scriptletsFor("quiet.example.com"), []);
+  assert.deepEqual(e.scriptletsFor("other.org"), []); // the generic ##+js rule is not applied
+});
+
+test("scriptlet handoff data and shards keep every host and its exceptions", () => {
+  const p = parseList(["a.com##+js(nowoif)", "b.a.com#@#+js(nowoif)", "c.org##+js(set, x, 1)"].join("\n"), "t");
+  const data = scriptletData(p.scriptlets, p.scriptletExceptions);
+  assert.deepEqual(Object.keys(data.h).sort(), ["a.com", "c.org"]);
+  const shards = scriptletShards(data, 10);
+  assert.equal(shards.length, 2);
+  assert.deepEqual(shards[0].data.x, { "b.a.com": ['["no-window-open-if"]'] });
+  assert.deepEqual(hostMatches(["a.com", "127.0.0.1", "google.*"]), ["*://*.a.com/*", "*://127.0.0.1/*"]);
+});
+
+test("procedural filters parse to tasks; plain CSS stays CSS", () => {
+  assert.equal(isProcedural("div:has(> a):not(.x)"), false);
+  assert.equal(parseCosmeticFilter("x.com##div:has(> a)", "t").procedural, undefined);
+  assert.deepEqual(parseProcedural(".ad:has-text(Sponsored):upward(2)"), { tasks: [["css", ".ad"], ["has-text", "Sponsored"], ["upward", 2]], action: null });
+  assert.deepEqual(parseProcedural("div:has(> span:-abp-contains(/Ad/i)) > a").tasks, [["css", "div"], ["has", [["css", "> span"], ["has-text", "/Ad/i"]]], ["spath", " > a"]]);
+  assert.deepEqual(parseProcedural("div :has-text(x)").tasks, [["css", "div *"], ["has-text", "x"]]);
+  assert.deepEqual(parseProcedural(".a:matches-css(before, content: /^Ad$/)").tasks[1], ["matches-css-before", "content", "/^Ad$/"]);
+  assert.deepEqual(parseProcedural(".b:style(color: red)").action, ["style", "color: red"]);
+  assert.deepEqual(parseProcedural(".b:remove()").action, ["remove"]);
+  assert.equal(parseProcedural(".b:style(background: url(x))"), null);
+  assert.equal(parseProcedural(".b:remove():has-text(x)"), null);
+  assert.equal(parseProcedural(".b:others()"), null);
+  assert.equal(parseCosmeticFilter("x.com##^script:has-text(ad)", "t"), null);
+});
+
+test("procedural rules and their exceptions in the engine", () => {
+  const e = engineFor(["x.com##.ad:has-text(Ad)", "x.com##.plain", "y.x.com#@#.ad:has-text(Ad)"].join("\n"));
+  assert.deepEqual(e.cosmeticFor("x.com"), [".plain"]);
+  assert.equal(e.proceduralFor("x.com").length, 1);
+  assert.deepEqual(e.proceduralFor("y.x.com"), []);
+});
+
+test("element picker rules: page host, one line, plain CSS only", () => {
+  assert.equal(pickerFilter("https://www.x.com/a?b", "div.ad > span"), "www.x.com##div.ad > span");
+  assert.equal(pickerFilter("https://x.com/", "a\n||evil.com^"), null);
+  assert.equal(pickerFilter("https://x.com/", "+js(nowoif)"), null);
+  assert.equal(pickerFilter("https://x.com/", ".a:has-text(b)"), null);
+  assert.equal(pickerFilter("chrome://settings", ".a"), null);
+  assert.equal(withFilter("a##.b\n", "a##.b"), "a##.b\n");
+  assert.equal(withFilter("a##.b\n\n", "c##.d"), "a##.b\nc##.d");
+  assert.equal(withFilter("", "c##.d"), "c##.d");
+});
+
+test("backups round-trip and reject anything else", () => {
+  const settings = { profile: "strict", listOverrides: { easyCookie: true }, customLists: { custom_ab1: { id: "custom_ab1", name: "Mine", url: "https://e.com/l.txt", enabled: false } }, myFilters: "x##.y", disabledSites: ["a.com"], showBadge: false, fingerprint: true };
+  const back = backupValues(JSON.parse(JSON.stringify(backupOf(settings))));
+  assert.deepEqual(back, settings);
+  assert.equal(backupValues({ profile: "strict" }), null);
+  const hostile = backupValues({ app: "PrivaBlock", backup: 1, profile: "nope", listOverrides: { madeUp: true, easylist: "yes" }, customLists: { a: { id: "custom_x", url: "javascript:alert(1)" } }, disabledSites: ["<b>", "ok.com"] });
+  assert.deepEqual(hostile, { listOverrides: {}, customLists: {}, disabledSites: ["ok.com"] });
+});
+
+test("trusted-only filters: $replace= and trusted scriptlets come from uBlock Origin's own lists only", () => {
+  const text = ['||y.com/player?$xhr,1p,replace=/"adPlacements"/"no_ads"/', "y.com##+js(trusted-rpfr, a, b, player?)", "y.com##+js(rpnt, script, x, y)"].join("\n");
+  const trusted = parseList(text, "ublockQuick");
+  assert.equal(trusted.replacers.length, 1);
+  assert.equal(trusted.scriptlets.length, 2);
+  const e = new Engine();
+  e.add(trusted);
+  assert.equal(e.replacersFor({ url: "https://y.com/player?x=1", requestHost: "y.com", pageHost: "y.com", type: "xmlhttprequest" }).length, 1);
+  assert.equal(e.replacersFor({ url: "https://y.com/player?x=1", requestHost: "y.com", pageHost: "y.com", type: "script" }).length, 0);
+  for (const source of ["user", "custom_abc", "adguard"]) {
+    const p = parseList(text, source);
+    assert.equal(p.replacers.length + p.scriptlets.length, 0, source);
+    assert.equal(p.unsupported, 3, source);
+  }
 });

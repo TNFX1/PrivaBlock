@@ -1,12 +1,12 @@
 {
   "name": "privablock",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "type": "module",
   "description": "Ad and tracker blocker for Firefox and Chromium browsers",
   "license": "MPL-2.0",
   "scripts": {
-    "test": "node --test tests/core.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/scriptlets.test.mjs",
     "build": "node tools/build.mjs",
     "update-psl": "node tools/update-psl.mjs"
   },

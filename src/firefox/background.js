@@ -3,7 +3,8 @@ import { Engine } from "../core/engine.js";
 import { parseList, RESOURCE_TYPES } from "../core/filters.js";
 import { LISTS, PROFILES, enabledLists } from "../core/lists.js";
 import { normalizeHost, sameSite, domainMatches } from "../core/psl.js";
-import { loadSettings, migrate, today, fetchList, siteForUrl, listName } from "../core/runtime.js";
+import { loadSettings, migrate, today, fetchList, siteForUrl, listName, pickerFilter, withFilter, backupValues } from "../core/runtime.js";
+import { handoffCode, hostMatches, scriptletShards } from "../core/scriptlets.js";
 
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000;
 const STATS_FLUSH_MS = 5000;
@@ -86,10 +87,31 @@ function rebuild(force = false) {
     state.ruleCount = next.stats.network + next.stats.hosts;
     state.cosmeticCount = next.stats.cosmetic;
     state.updated = Date.now();
+    await registerScriptlets();
   })().finally(() => {
     state.loading = null;
   });
   return state.loading;
+}
+
+// ------------------------------------------------------------------ scriptlets
+
+// Registered content scripts hand every page with scriptlet filters its calls at document_start (see
+// src/core/scriptlets.js), one per shard of hosts. Registered again after each rebuild and per-site switch.
+let scriptletRegistrations = [];
+async function registerScriptlets() {
+  const old = scriptletRegistrations;
+  scriptletRegistrations = [];
+  await Promise.all(old.map((r) => r.unregister().catch(() => {})));
+  const excludeMatches = hostMatches(state.settings.disabledSites);
+  const results = await Promise.allSettled(scriptletShards(engine.scriptletData()).map(({ data, matches }) => browser.contentScripts.register({
+    matches, ...(excludeMatches.length ? { excludeMatches } : {}),
+    js: [{ code: handoffCode(data) }], runAt: "document_start", allFrames: true,
+  })));
+  for (const r of results) {
+    if (r.status === "fulfilled") scriptletRegistrations.push(r.value);
+    else console.error("PrivaBlock scriptlet registration failed", r.reason);
+  }
 }
 
 // ------------------------------------------------------------------ blocking
@@ -121,9 +143,39 @@ function onBeforeRequest(d) {
   const type = RESOURCE_TYPES.has(TYPE_FROM_FIREFOX[d.type] || d.type) ? TYPE_FROM_FIREFOX[d.type] || d.type : "other";
   const { block, filter } = engine.match({ url: d.url, requestHost, pageHost, type });
   if (state.loggerPorts.has(d.tabId)) log(d.tabId, { action: block ? "block" : "allow", type, url: d.url, filter, pageHost, requestHost });
-  if (!block) return {};
+  if (!block) {
+    const replacers = engine.replacersFor({ url: d.url, requestHost, pageHost, type });
+    if (replacers.length) rewriteResponse(d.requestId, replacers);
+    return {};
+  }
   countBlocked(d.tabId, 1);
   return { cancel: true };
+}
+
+/** Apply $replace= filters to a response body (buffered whole; UTF-8 text only, anything else passes unchanged). */
+function rewriteResponse(requestId, replacers) {
+  let stream;
+  try {
+    stream = browser.webRequest.filterResponseData(requestId);
+  } catch {
+    return;
+  }
+  const chunks = [];
+  stream.ondata = (event) => chunks.push(new Uint8Array(event.data));
+  stream.onstop = () => {
+    const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) bytes.set(c, (at += c.length) - c.length);
+    try {
+      let text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      for (const f of replacers) text = text.replace(f.replace.regex, f.replace.replacement);
+      stream.write(new TextEncoder().encode(text));
+    } catch {
+      stream.write(bytes);
+    }
+    stream.close();
+  };
+  stream.onerror = () => {};
 }
 
 browser.webRequest.onBeforeRequest.addListener(onBeforeRequest, { urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, ["blocking"]);
@@ -218,10 +270,12 @@ async function updateSetting(values) {
   // Also when a site is switched off from Settings, which reloads nothing: its tabs show no count.
   if ("showBadge" in values || "disabledSites" in values) for (const tab of await browser.tabs.query({})) updateBadge(tab.id, siteDisabled(hostOf(tab.url)));
   if (["profile", "listOverrides", "customLists", "myFilters"].some((k) => k in values)) await rebuild(false).catch(() => {});
+  else if ("disabledSites" in values) await registerScriptlets();
 }
 
 const handlers = {
-  getCapabilities: () => ({ browser: "firefox", fingerprint: true, dailyStats: true, fullLogger: true, benchmark: true, bundledLists: false }),
+  // Firefox for Android has no resistFingerprinting setting for extensions.
+  getCapabilities: () => ({ browser: "firefox", fingerprint: !!browser.privacy?.websites?.resistFingerprinting, dailyStats: true, fullLogger: true, benchmark: true, bundledLists: false }),
 
   async getStats() {
     const tab = await activeTab();
@@ -314,7 +368,25 @@ const handlers = {
   getCosmetic: ({ host }) => {
     const h = normalizeHost(host);
     if (!h || siteDisabled(h)) return { enabled: false, selectors: [] };
-    return { enabled: true, selectors: engine.cosmeticFor(h) };
+    return { enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h) };
+  },
+  async startPicker() {
+    return startPicker(await activeTab());
+  },
+  // From the picker in a page: the rule is built here, for the page the message came from.
+  async pickerCreate({ selector }, sender) {
+    const filter = sender.frameId === 0 && pickerFilter(sender.url, selector);
+    if (!filter) return { ok: false };
+    await updateSetting({ myFilters: withFilter(state.settings.myFilters, filter) });
+    return { ok: true, filter };
+  },
+  async importSettings({ data }) {
+    const values = backupValues(data);
+    if (!values) return { ok: false };
+    const { fingerprint, ...rest } = values;
+    await updateSetting(rest);
+    if (fingerprint !== undefined && browser.privacy?.websites?.resistFingerprinting) await setFingerprint(fingerprint);
+    return { ok: true };
   },
   benchmark: () => {
     const samples = ["https://doubleclick.net/ad.js", "https://www.google-analytics.com/analytics.js", "https://example.com/app.js", "https://cdn.example.com/lib.js", "https://connect.facebook.net/en_US/fbevents.js"];
@@ -331,10 +403,31 @@ const handlers = {
 browser.runtime.onMessage.addListener((message, sender) => {
   // Settings-changing messages are only accepted from PrivaBlock's own pages.
   const fromExtensionPage = sender.url?.startsWith(browser.runtime.getURL(""));
-  const contentAllowed = message?.type === "getCosmetic" || message?.type === "recordCosmetic";
+  const contentAllowed = ["getCosmetic", "recordCosmetic", "pickerCreate"].includes(message?.type);
   const handler = handlers[message?.type];
   if (!handler || (!fromExtensionPage && !contentAllowed)) return undefined;
   return Promise.resolve(handler(message, sender));
+});
+
+// ------------------------------------------------------------------ element picker & shortcuts
+
+async function startPicker(tab) {
+  if (!tab || !siteForUrl(tab.url) || siteDisabled(hostOf(tab.url))) return { ok: false };
+  await browser.tabs.executeScript(tab.id, { file: "/content/picker.js", frameId: 0 });
+  return { ok: true };
+}
+
+async function toggleSite(tab) {
+  const site = siteForUrl(tab?.url);
+  if (!site) return;
+  await handlers.setSiteEnabled({ site, enabled: siteDisabled(site), tabId: tab.id });
+}
+
+// No commands on Firefox for Android.
+browser.commands?.onCommand.addListener(async (command) => {
+  const tab = await activeTab();
+  if (command === "pick-element") startPicker(tab).catch(() => {});
+  if (command === "toggle-site") toggleSite(tab).catch(() => {});
 });
 
 // ------------------------------------------------------------------ start-up

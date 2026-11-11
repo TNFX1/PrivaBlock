@@ -1,6 +1,12 @@
 // Adblock-style filter list parsing (EasyList / uBlock Origin / AdGuard / hosts syntax).
 // Only what PrivaBlock can apply is returned; everything else is counted as unsupported.
 import { normalizeHost, hasKnownTld } from "./psl.js";
+import { parseScriptletCall } from "./scriptlets.js";
+import { isProcedural, parseProcedural } from "./procedural.js";
+import { LISTS } from "./lists.js";
+
+/** True for uBlock Origin's own lists, the only ones allowed trusted-only filters. */
+export const isTrusted = (source) => LISTS[source]?.trusted === true;
 
 export const RESOURCE_TYPES = new Set([
   "script", "image", "stylesheet", "font", "media", "object", "xmlhttprequest", "subdocument",
@@ -10,8 +16,8 @@ const TYPE_ALIASES = { xhr: "xmlhttprequest", beacon: "ping", css: "stylesheet",
 const PARTY_OPTIONS = new Set(["third-party", "3p", "first-party", "1p", "~third-party", "~3p", "~first-party", "~1p"]);
 const FLAG_OPTIONS = new Set(["important", "match-case"]);
 const VALUE_OPTIONS = new Set(["domain", "from", "to"]);
-// Procedural / scriptlet / HTML-filtering syntax and pseudo-classes PrivaBlock does not implement.
-const UNSUPPORTED_COSMETIC = /^\+js\(|^\^|:(?:has-text|-abp-|matches-css|matches-attr|matches-path|min-text-length|upward|remove|style|xpath|watch-attr|others|if|if-not|nth-ancestor|contains)\b/;
+// HTML filtering (##^) is not implemented.
+const UNSUPPORTED_COSMETIC = /^\^/;
 
 /** Split "a.com|~b.com" or "a.com,~b.com" into included and excluded domains. */
 export function parseDomains(value, separator = "|") {
@@ -25,10 +31,32 @@ export function parseDomains(value, separator = "|") {
   return { include, exclude };
 }
 
-function parseOptions(text) {
+/** `/pattern/replacement/flags` (slashes inside escaped as `\/`) → { regex, replacement }, or null. */
+export function parseReplace(value) {
+  const parts = [];
+  let current = "";
+  for (let i = 1; i < value.length; i++) {
+    if (value[i] === "\\" && value[i + 1] === "/") {
+      current += "/";
+      i++;
+    } else if (value[i] === "/") {
+      parts.push(current);
+      current = "";
+    } else current += value[i];
+  }
+  parts.push(current);
+  if (!value.startsWith("/") || parts.length !== 3 || !parts[0] || !/^[gimsu]*$/.test(parts[2])) return null;
+  try {
+    return { regex: new RegExp(parts[0], parts[2]), replacement: parts[1] };
+  } catch {
+    return null;
+  }
+}
+
+function parseOptions(text, trusted = false) {
   const types = [];
   const excludedTypes = [];
-  const options = { important: false, matchCase: false, party: null, domain: null, from: null, to: null };
+  const options = { important: false, matchCase: false, party: null, domain: null, from: null, to: null, replace: null };
   for (const raw of text.split(",")) {
     const item = raw.trim().toLowerCase();
     if (!item) continue;
@@ -44,6 +72,10 @@ function parseOptions(text) {
       options.party = third !== negated ? "third" : "first";
     } else if (eq < 0 && FLAG_OPTIONS.has(key)) options[key === "important" ? "important" : "matchCase"] = true;
     else if (eq > 0 && VALUE_OPTIONS.has(key)) options[key] = parseDomains(value);
+    else if (key === "replace" && trusted && !options.replace) {
+      options.replace = parseReplace(value); // response body rewriting: Firefox only, trusted lists only
+      if (!options.replace) return null;
+    }
     else return null; // unknown or unsupported option: skipping beats misapplying the filter
   }
   return { types, excludedTypes, ...options };
@@ -77,10 +109,12 @@ export function patternToRegExp(pattern, matchCase = false) {
 /** A network filter, or null when it can't be applied faithfully. */
 export function parseNetworkFilter(line, source, exception = false) {
   let pattern = line;
-  let options = { types: [], excludedTypes: [], important: false, matchCase: false, party: null, domain: null, from: null, to: null };
-  const dollar = line.lastIndexOf("$");
+  let options = { types: [], excludedTypes: [], important: false, matchCase: false, party: null, domain: null, from: null, to: null, replace: null };
+  // $replace=/a/b/ can itself contain "$": the options start at the first "$" followed by a known-looking option list.
+  const replaceAt = line.search(/\$(?:[^$]*,)?replace=\//);
+  const dollar = replaceAt > 0 ? replaceAt : line.lastIndexOf("$");
   if (dollar > 0 && !/^\/.*\/$/.test(line)) {
-    const parsed = parseOptions(line.slice(dollar + 1));
+    const parsed = parseOptions(line.slice(dollar + 1), isTrusted(source));
     if (!parsed) return null;
     options = parsed;
     pattern = line.slice(0, dollar);
@@ -106,25 +140,45 @@ export function parseNetworkFilter(line, source, exception = false) {
   };
 }
 
-/** A cosmetic (element hiding) rule, or null when generic, procedural or malformed. */
+/**
+ * A cosmetic rule, or null when generic, unsupported or malformed. Kinds: cosmetic / cosmeticException
+ * (plain CSS, or `procedural` when the selector needs the content script's own matcher) and
+ * scriptlet / scriptletException (`+js(…)`, `call` = [name, ...args]).
+ */
 export function parseCosmeticFilter(line, source) {
   const match = line.match(/^([^#]*?)(#@#|##|#\?#|#\$#|#%#|#@\$#|#@%#|#@\?#)(.+)$/);
   if (!match) return null;
   const [, hostPart, separator, selector] = match;
-  if (separator !== "##" && separator !== "#@#") return null; // procedural / CSS injection / scriptlets
+  const exception = separator.startsWith("#@");
+  if (!["##", "#@#", "#?#", "#@?#"].includes(separator)) return null; // AdGuard CSS injection / JS rules
   const sel = selector.trim();
-  if (!sel || sel.length > 2000 || UNSUPPORTED_COSMETIC.test(sel)) return null;
+  // Scriptlet calls can carry code (uBO's YouTube replace-node-text is ~4 KB); selectors stay short.
+  if (!sel || sel.length > (sel.startsWith("+js(") ? 20000 : 2000) || UNSUPPORTED_COSMETIC.test(sel)) return null;
   const { include, exclude } = parseDomains(hostPart, ",");
-  if (separator === "##" && !include.length) return null; // generic rules: too costly to apply everywhere
-  return { kind: separator === "#@#" ? "cosmeticException" : "cosmetic", hosts: include, excludedHosts: exclude, selector: sel, source };
+  if (!exception && !include.length) return null; // generic rules: too costly to apply everywhere
+  const base = { hosts: include, excludedHosts: exclude, source };
+  if (sel.startsWith("+js(")) {
+    if (!sel.endsWith(")") || separator.includes("?")) return null;
+    const call = parseScriptletCall(sel.slice(4, -1), isTrusted(source));
+    if (!call || (!call.length && !exception)) return null;
+    return { kind: exception ? "scriptletException" : "scriptlet", ...base, call };
+  }
+  const rule = { kind: exception ? "cosmeticException" : "cosmetic", ...base, selector: sel };
+  if (isProcedural(sel)) {
+    const procedural = parseProcedural(sel);
+    if (!procedural) return null;
+    rule.procedural = procedural;
+  }
+  return rule;
 }
 
 /**
- * Parse a filter list. Returns { network, exceptions, hosts, cosmetic, cosmeticExceptions, unsupported }.
+ * Parse a filter list. Returns { network, exceptions, hosts, replacers, cosmetic, cosmeticExceptions,
+ * scriptlets, scriptletExceptions, unsupported }. `replacers` are $replace= filters (Firefox only).
  * `hosts` are plain domains to block entirely (from hosts files and bare `||domain^` filters).
  */
 export function parseList(text, source) {
-  const out = { source, network: [], exceptions: [], hosts: [], cosmetic: [], cosmeticExceptions: [], unsupported: 0 };
+  const out = { source, network: [], exceptions: [], hosts: [], replacers: [], cosmetic: [], cosmeticExceptions: [], scriptlets: [], scriptletExceptions: [], unsupported: 0 };
   for (let line of String(text || "").split(/\r?\n/)) {
     line = line.trim();
     if (!line || line.startsWith("!") || line.startsWith("[") || (line.startsWith("#") && !line.startsWith("##") && !line.startsWith("#@#"))) continue;
@@ -137,13 +191,15 @@ export function parseList(text, source) {
     }
     if (/#[@?$%]*#/.test(line) && !line.startsWith("@@")) {
       const rule = parseCosmeticFilter(line, source);
+      const into = { cosmetic: out.cosmetic, cosmeticException: out.cosmeticExceptions, scriptlet: out.scriptlets, scriptletException: out.scriptletExceptions };
       if (!rule) out.unsupported++;
-      else (rule.kind === "cosmetic" ? out.cosmetic : out.cosmeticExceptions).push(rule);
+      else into[rule.kind].push(rule);
       continue;
     }
     const exception = line.startsWith("@@");
     const filter = parseNetworkFilter(exception ? line.slice(2) : line, source, exception);
-    if (!filter) out.unsupported++;
+    if (!filter || (filter.replace && exception)) out.unsupported++;
+    else if (filter.replace) out.replacers.push(filter);
     else if (exception) out.exceptions.push(filter);
     else if (isPlainDomainBlock(filter)) out.hosts.push(filter.requestDomain);
     else out.network.push(filter);

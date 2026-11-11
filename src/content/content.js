@@ -29,6 +29,19 @@
     return style;
   }
 
+  // Scriptlet calls that came by message (Chromium: user filters and custom lists) go to the page-world
+  // runner the same way the registered handoff scripts send theirs (see src/core/scriptlets.js). Late
+  // for scripts that already ran, so lists' scriptlets are registered ahead instead.
+  function handOff(calls) {
+    const root = document.documentElement;
+    let queued = [];
+    try {
+      queued = JSON.parse(root.getAttribute("data-privablock-sl") || "[]");
+    } catch {}
+    root.setAttribute("data-privablock-sl", JSON.stringify(queued.concat(calls)));
+    document.dispatchEvent(new Event("privablock-sl"));
+  }
+
   const builtIn = youtube ? inject("privablock-youtube", YOUTUBE) : null;
 
   function countHidden(selectors) {
@@ -58,6 +71,10 @@
     }
     const selectors = response.selectors.slice(0, MAX_SELECTORS);
     inject("privablock-cosmetic", selectors);
+    if (response.scriptlets?.length) handOff(response.scriptlets);
+    if (response.procedural?.length) {
+      globalThis.privablockProcedural?.(response.procedural, (count) => api.runtime.sendMessage({ type: "recordCosmetic", count }).catch(() => {}));
+    }
     const report = () => {
       const count = countHidden(youtube ? [...selectors, ...YOUTUBE] : selectors);
       if (count) api.runtime.sendMessage({ type: "recordCosmetic", count }).catch(() => {});

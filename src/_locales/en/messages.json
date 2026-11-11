@@ -298,5 +298,68 @@
  },
  "badgeHint": {
   "message": "The number of requests blocked on the page appears on the toolbar icon"
+ },
+ "popupPicker": {
+  "message": "Hide an element"
+ },
+ "pickerTitle": {
+  "message": "Hide an element"
+ },
+ "pickerHint": {
+  "message": "Click the part of the page you want to hide. Esc cancels."
+ },
+ "pickerSelector": {
+  "message": "Selector"
+ },
+ "pickerMatches": {
+  "message": "Matches $1 elements on this page"
+ },
+ "pickerInvalid": {
+  "message": "Not a valid selector"
+ },
+ "pickerWider": {
+  "message": "Wider"
+ },
+ "pickerCreate": {
+  "message": "Hide"
+ },
+ "pickerCancel": {
+  "message": "Cancel"
+ },
+ "commandPick": {
+  "message": "Hide an element on this page"
+ },
+ "commandToggle": {
+  "message": "Turn protection on or off for this site"
+ },
+ "backupTitle": {
+  "message": "Backup"
+ },
+ "backupHint": {
+  "message": "Save your profile, lists, My filters and switched-off sites to a file, or bring them back from one."
+ },
+ "backupExport": {
+  "message": "Save to a file"
+ },
+ "backupImport": {
+  "message": "Restore from a file"
+ },
+ "backupInvalid": {
+  "message": "This is not a PrivaBlock backup file"
+ },
+ "backupConfirm": {
+  "message": "Replace your current settings with the ones in this file?"
+ },
+ "backupImported": {
+  "message": "Settings restored"
+ },
+ "shortcutsTitle": {
+  "message": "Keyboard shortcuts"
+ },
+ "shortcutsHintFirefox": {
+  "message": "Alt+Shift+H hides an element. Change it, or add one for switching the current site on and off, in about:addons → gear menu → Manage Extension Shortcuts."
+ },
+ "shortcutsHintChromium": {
+  "message": "Alt+Shift+H hides an element. Change it, or add one for switching the current site on and off, at chrome://extensions/shortcuts."
  }
 }
