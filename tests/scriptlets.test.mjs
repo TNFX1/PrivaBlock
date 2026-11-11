@@ -17,7 +17,7 @@ function page(bodies, responses = {}) {
     Response, Request, Headers, setTimeout, structuredClone,
     document: {
       documentElement: { getAttribute: (k) => attrs[k] ?? null, setAttribute: (k, v) => (attrs[k] = v), removeAttribute: (k) => delete attrs[k] },
-      addEventListener() {}, readyState: "complete", cookie: "",
+      addEventListener() {}, getElementById: () => null, readyState: "complete", cookie: "",
     },
     fetch: async (input) => new Response(responses[input instanceof Request ? input.url : String(input)] ?? "{}"),
   });
@@ -60,7 +60,7 @@ test("trusted-edit-inbound-object: filters, +=, repl and ${now} on a copy", () =
     `trusted-edit-inbound-object, JSON.stringify, 0, [?.attestationRequest].playbackContext.referer=repl({"regex":"(?:#reloadxhr)?$"\\,"replacement":"#reloadxhr"})`,
   ]);
   const out = JSON.parse(run(`
-    window.req = { attestationRequest: {}, context: { client: { clientName: "WEB", userAgent: "Mozilla; channel" } }, playbackContext: { referer: "https://y/watch" } };
+    window.req = { attestationRequest: {}, context: { client: { clientName: "WEB", userAgent: "Mozilla; channel" } }, playbackContext: { referer: "https://y/watch", lactMilliseconds: "-1" } };
     JSON.stringify(req)`));
   assert.equal(out.context.client.clientScreen, "CHANNEL");
   assert.match(out.playbackContext.lactMilliseconds, /^\d{13}$/);
@@ -68,6 +68,9 @@ test("trusted-edit-inbound-object: filters, +=, repl and ${now} on a copy", () =
   assert.equal(run("req.context.client.clientScreen"), undefined); // the page's own object is left alone
   const other = JSON.parse(run(`JSON.stringify({ context: { client: { clientName: "WEB", userAgent: "channel" } } })`));
   assert.equal(other.context.client.clientScreen, undefined); // no attestationRequest: not touched
+  // as uBO, an assignment never creates a property that isn't there
+  const noLact = JSON.parse(run(`JSON.stringify({ attestationRequest: {}, context: { client: { userAgent: "inline" } }, playbackContext: {} })`));
+  assert.equal(noLact.playbackContext.lactMilliseconds, undefined);
 });
 
 test("assignments need a trusted list; untrusted json-edit only removes", () => {
@@ -80,4 +83,25 @@ test("assignments need a trusted list; untrusted json-edit only removes", () => 
 test("set-constant: several chains through the same root all apply", () => {
   const run = page(["set, yt.adSlots, undefined", "set, yt.adPlacements, undefined", "set, yt.playerAds, undefined"]);
   assert.equal(run(`var yt = { adPlacements: [1], adSlots: [2], playerAds: [3], videoDetails: 4 }; JSON.stringify(yt)`), '{"videoDetails":4}');
+});
+
+test("jsonq like uBO: a filter on an array picks its items; += appends to arrays", () => {
+  const run = page(["json-edit, .items[?.ad==true]", `trusted-json-edit, .list+=["x"]`]);
+  assert.equal(run(`JSON.stringify(JSON.parse('{"items":[{"ad":true},{"ad":false},{"v":1}]}'))`), '{"items":[{"ad":false},{"v":1}]}');
+  assert.equal(run(`JSON.stringify(JSON.parse('{"list":["a"]}'))`), '{"list":["a","x"]}');
+});
+
+test("wrapped functions still look native", () => {
+  const run = page(["json-prune, ads"]);
+  assert.match(run("Function.prototype.toString.call(JSON.parse)"), /^function parse\(\) \{\s*\[native code\]\s*\}$/);
+  assert.match(run("JSON.parse.toString()"), /\[native code\]/);
+  assert.equal(run("JSON.parse.name"), "parse");
+});
+
+test("anti-adblock defusers: nobab skips BlockAdBlock code, nofab and popads-dummy fake the libraries", () => {
+  const run = page(["nobab", "nofab", "popads-dummy"]);
+  assert.equal(run(`window.ran = false; eval("window.ran = true; /* blockadblock */"); String(window.ran)`), "false");
+  assert.equal(run(`eval("1 + 1")`), 2);
+  assert.equal(run(`let said = ""; fuckAdBlock.onDetected(() => (said = "blocked")); typeof FuckAdBlock + typeof blockAdBlock.check`), "functionfunction");
+  assert.equal(run(`JSON.stringify([typeof PopAds, popns])`), '["object","PopAds"]');
 });

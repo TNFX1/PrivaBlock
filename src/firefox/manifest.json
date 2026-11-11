@@ -92,5 +92,8 @@
     "toggle-site": {
       "description": "__MSG_commandToggle__"
     }
-  }
+  },
+  "web_accessible_resources": [
+    "redirects/*"
+  ]
 }

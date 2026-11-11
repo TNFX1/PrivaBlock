@@ -17,9 +17,11 @@
 
 ## What it does
 
-- **Blocks ads and trackers** with well-known filter lists: uBlock filters, EasyList, EasyPrivacy, HaGeZi, AdGuard.
-- **Hides leftover ad boxes** on pages (element hiding), including YouTube's ad slots, and runs the lists'
-  procedural rules (`:has-text()`, `:upward()`, `:remove()`, `:style()`…).
+- **Blocks ads and trackers** with well-known filter lists: uBlock filters, EasyList, EasyPrivacy, HaGeZi, AdGuard,
+  and the Adblock Warning Removal List against "turn off your ad blocker" walls.
+- **Hides leftover ad boxes and sticky ad bars** on pages (site-specific and generic element hiding),
+  including YouTube's ad slots, and runs the lists' procedural rules (`:has-text()`, `:upward()`…).
+- **Closes pop-up ad tabs** that pages open (`$popup` filters).
 - **Scriptlets**: the lists' `+js()` rules that defuse anti-adblock walls, pop-ups and cookie banners
   inside the page (PrivaBlock's own implementation of the common ones).
 - **Element picker**: click any part of a page to hide it from then on (popup, or <kbd>Alt+Shift+H</kbd>).
@@ -54,12 +56,15 @@ PrivaBlock works differently in the two browser families, because they give exte
 | Fingerprinting protection | Optional: turns on Firefox's own *resist fingerprinting* (off by default) | — |
 
 Supported filter syntax: network filters (`||example.com^`, `$third-party`, `$domain=`, resource types,
-`$important`, `@@` exceptions), hosts files, site-specific element hiding (`example.com##.ad`), procedural
+`$important`, `@@` exceptions, `$popup`, `$redirect` / `$redirect-rule` to PrivaBlock's own stand-in
+resources (including a Google IMA stand-in for video players), `$badfilter`, `$generichide` / `$elemhide`),
+hosts files, element hiding both site-specific (`example.com##.ad`) and generic (`##.ad`, looked up from the
+classes and ids a page has, as uBO does), procedural
 cosmetics (`:has-text`, `:upward`, `:matches-css`, `:xpath`, `:remove`, `:style`…, also AdGuard's `#?#`)
 and scriptlets (`##+js(…)`: set-constant, abort-on-property-read/write, abort-current-script, json-prune,
 json-prune-fetch/xhr-response, json-edit (uBO's legacy JSONPath), no-setTimeout-if, no-fetch-if, no-xhr-if,
-set-cookie, remove-attr and more, with their usual aliases). Redirects, regex filters, HTML filtering,
-`v2:` JSONPath and generic hiding rules are skipped.
+set-cookie, remove-attr and more, with their usual aliases). Regex filters, HTML filtering, `$removeparam`, `$csp` and `v2:` JSONPath are skipped. On
+Chromium, `$redirect-rule` is skipped (declarativeNetRequest can't express it).
 
 As in uBlock Origin, filters that rewrite what a page receives or runs are accepted only from uBlock
 Origin's own lists (uBlock filters, Quick fixes, Unbreak, Privacy), never from other lists, custom lists

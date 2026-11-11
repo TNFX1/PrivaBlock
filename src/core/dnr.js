@@ -1,4 +1,5 @@
 // Convert parsed filter lists to Chromium declarativeNetRequest rules (MV3).
+import { redirectFile } from "./redirects.js";
 // Used at build time for the bundled lists and at run time for user filters / custom lists.
 
 const TYPE_MAP = {
@@ -6,7 +7,8 @@ const TYPE_MAP = {
   object: "object", xmlhttprequest: "xmlhttprequest", subdocument: "sub_frame", document: "main_frame",
   websocket: "websocket", ping: "ping", csp_report: "csp_report", other: "other",
 };
-export const PRIORITY = { block: 1, allow: 2, important: 3, siteDisabled: 100 };
+// A $redirect= filter beats a plain block on the same request; an exception beats both.
+export const PRIORITY = { block: 1, redirect: 2, allow: 3, important: 4, siteDisabled: 100 };
 const DOMAINS_PER_RULE = 1000;
 
 /** Punycode a domain the way URLs carry it; null if it isn't a valid host. */
@@ -31,6 +33,8 @@ function asciiDomains(list) {
 
 /** One network filter → a DNR rule (without id), or null when it can't be expressed. */
 export function filterToRule(f) {
+  // $redirect= (not -rule: DNR can't tell "blocked anyway") to a surrogate PrivaBlock has; otherwise a block.
+  const file = !f.exception && f.redirect && !f.redirect.rule ? redirectFile(f.redirect.resource) : "";
   const condition = {};
   if (f.requestDomain && f.pattern === `||${f.requestDomain}^`) {
     const d = asciiDomain(f.requestDomain);
@@ -66,8 +70,8 @@ export function filterToRule(f) {
   }
   const allow = f.exception;
   return {
-    priority: allow ? PRIORITY.allow : f.important ? PRIORITY.important : PRIORITY.block,
-    action: { type: allow ? "allow" : "block" },
+    priority: allow ? PRIORITY.allow : f.important ? PRIORITY.important : file ? PRIORITY.redirect : PRIORITY.block,
+    action: allow ? { type: "allow" } : file ? { type: "redirect", redirect: { extensionPath: `/redirects/${file}` } } : { type: "block" },
     condition,
   };
 }

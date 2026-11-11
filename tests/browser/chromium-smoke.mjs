@@ -21,25 +21,26 @@ const check = (name, ok, detail = "") => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)"].join("\n");
+const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)", "##.pb-generic-ad", "/ima3.js$script,redirect=google-ima.js,domain=127.0.0.1"].join("\n");
 const PAGE = `<!doctype html><title>t</title><div class="pb-hide-me">cosmetic target</div>
-<div class="pb-proc">Sponsored content</div><div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div><script>
+<div class="pb-proc">Sponsored content</div><div class="pb-generic-ad">generic</div><script src="/ima3.js"></script><div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div><script>
 window.results = {};
 function probe(name, tag, url) { const el = document.createElement(tag); el.onload = () => (results[name] = "loaded"); el.onerror = () => (results[name] = "blocked"); el.src = url; document.body.appendChild(el); }
-probe("googleAnalytics", "script", "https://www.google-analytics.com/analytics.js");
-probe("doubleclick", "script", "https://securepubads.g.doubleclick.net/tag/js/gpt.js");
+probe("tracker", "script", "https://static.hotjar.com/c/hotjar-1.js");
+probe("tracker2", "script", "https://connect.facebook.net/en_US/fbevents.js");
 probe("firstPartyImage", "img", "/pixel.png");
 </script>`;
 // 30 blocked requests on one page: more than a quill row (23), and more getStats calls than Chromium's
 // getMatchedRules quota (20 per 10 minutes) are made against it below.
 const MANY = `<!doctype html><title>many</title><script>
 window.done = 0;
-const one = (i) => new Promise((ok) => { const s = document.createElement("script"); s.onload = s.onerror = () => ok(done++); s.src = "https://www.google-analytics.com/analytics.js?n=" + i; document.head.appendChild(s); });
+const one = (i) => new Promise((ok) => { const s = document.createElement("script"); s.onload = s.onerror = () => ok(done++); s.src = "https://static.hotjar.com/c/hotjar-1.js?n=" + i; document.head.appendChild(s); });
 window.more = (k) => Promise.all(Array.from({ length: k }, () => one(done + Math.random())));
 more(30);
 </script>`;
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 const server = createServer((req, res) => {
+  if (req.url === "/ima3.js") return res.writeHead(200, { "content-type": "text/javascript" }).end("window.realIma = true;");
   if (req.url === "/pixel.png") return res.writeHead(200, { "content-type": "image/png" }).end(PIXEL);
   res.writeHead(200, { "content-type": "text/html" }).end(req.url === "/many" ? MANY : PAGE);
 });
@@ -132,13 +133,16 @@ try {
   let probes;
   for (let i = 0; i < 50 && Object.keys((probes = await evaluate("window.results")) || {}).length < 3; i++) await sleep(200);
   if (Object.keys(probes || {}).length < 3) throw new Error(`test page probes not finished after 10 s: ${JSON.stringify(probes)}`);
-  check("Google Analytics blocked", probes.googleAnalytics === "blocked", probes.googleAnalytics);
-  check("DoubleClick blocked", probes.doubleclick === "blocked", probes.doubleclick);
+  check("tracker blocked (Hotjar)", probes.tracker === "blocked", probes.tracker);
+  check("tracker blocked (Facebook pixel)", probes.tracker2 === "blocked", probes.tracker2);
   check("first-party image allowed", probes.firstPartyImage === "loaded", probes.firstPartyImage);
   check("cosmetic rule from My filters hides the element", (await evaluate("getComputedStyle(document.querySelector('.pb-hide-me')).display")) === "none");
   check("procedural rule (:has-text) hides the element", (await evaluate("getComputedStyle(document.querySelector('.pb-proc')).display")) === "none");
   // My filters reach the page by message on Chromium: after its first scripts, so read the value later.
   check("scriptlet from My filters runs in the page", (await evaluate("String(window.pbTest)")) === "true");
+  check("generic hiding rule (##.class) hides the element", (await evaluate("getComputedStyle(document.querySelector('.pb-generic-ad')).display")) === "none");
+  const ima = await evaluate("JSON.stringify({ real: !!window.realIma, standIn: !!window.google?.ima?.AdsLoader })");
+  check("$redirect answers the script with PrivaBlock's IMA stand-in", ima === '{"real":false,"standIn":true}', ima);
 
   // Element picker: started for the active tab from an extension page, a real click picks, Enter saves.
   {
@@ -280,7 +284,7 @@ try {
   await send("setSiteEnabled", { site: "127.0.0.1", enabled: false });
   await go(pageUrl);
   await sleep(2000);
-  check("site switch off: trackers load again", (await evaluate("window.results.googleAnalytics")) === "loaded");
+  check("site switch off: trackers load again", (await evaluate("window.results.tracker")) === "loaded");
   await go(`${BASE}/ui/settings.html`);
   await send("setSiteEnabled", { site: "127.0.0.1", enabled: true });
 

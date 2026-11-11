@@ -14,6 +14,7 @@ export const LISTS = {
   adguardPrivacy: { group: "privacy", name: "AdGuard – Tracking Protection", url: "https://filters.adtidy.org/extension/ublock/filters/3.txt" },
   easyAnnoyances: { group: "annoyances", name: "EasyList – Annoyances", url: "https://ublockorigin.github.io/uAssets/thirdparties/easylist-annoyances.txt" },
   easyCookie: { group: "annoyances", name: "EasyList – Cookie Notices", url: "https://ublockorigin.github.io/uAssets/thirdparties/easylist-cookies.txt" },
+  antiAdblock: { group: "annoyances", name: "Adblock Warning Removal List", url: "https://easylist-downloads.adblockplus.org/antiadblockfilters.txt" },
 };
 
 export const GROUPS = ["core", "ads", "adsPrivacy", "privacy", "compatibility", "annoyances"];
@@ -21,8 +22,8 @@ export const GROUPS = ["core", "ads", "adsPrivacy", "privacy", "compatibility", 
 const BASE = ["ublock", "ublockQuick", "ublockUnbreak", "easylist", "easyprivacy"];
 export const PROFILES = {
   light: BASE,
-  balanced: [...BASE, "hagezi", "ublockPrivacy"],
-  strict: [...BASE, "hagezi", "hageziPlus", "ublockPrivacy", "adguard", "adguardPrivacy", "easyAnnoyances", "easyCookie"],
+  balanced: [...BASE, "hagezi", "ublockPrivacy", "antiAdblock"],
+  strict: [...BASE, "hagezi", "hageziPlus", "ublockPrivacy", "adguard", "adguardPrivacy", "easyAnnoyances", "easyCookie", "antiAdblock"],
 };
 export const DEFAULT_PROFILE = "balanced";
 

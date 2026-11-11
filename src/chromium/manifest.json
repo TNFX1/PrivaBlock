@@ -84,5 +84,15 @@
     "toggle-site": {
       "description": "__MSG_commandToggle__"
     }
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "redirects/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
 }

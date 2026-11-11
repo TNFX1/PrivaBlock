@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { siteOf, sameSite } from "../src/core/psl.js";
-import { parseList, parseNetworkFilter } from "../src/core/filters.js";
+import { parseList, parseNetworkFilter, badfiltersOf } from "../src/core/filters.js";
 import { Engine, patternToken } from "../src/core/engine.js";
 import { listToRules, filterToRule } from "../src/core/dnr.js";
 import { enabledLists, PROFILES } from "../src/core/lists.js";
@@ -67,8 +67,8 @@ test("bare host names are host filters (uBlock Origin semantics)", () => {
 
 test("regex filters and unknown options are skipped, not misapplied", () => {
   assert.equal(parseNetworkFilter("/ad[0-9]+/", "t"), null);
-  assert.equal(parseNetworkFilter("||x.com^$redirect=noop.js", "t"), null);
-  const p = parseList("/ad[0-9]+/\n||x.com^$removeparam=utm\n##.generic\nexample.com##+js(nobab)", "t");
+  assert.equal(parseNetworkFilter("||x.com^$csp=script-src 'none'", "t"), null);
+  const p = parseList("/ad[0-9]+/\n||x.com^$removeparam=utm\n##+js(nowoif)\nexample.com##+js(no-such-scriptlet)", "t");
   assert.equal(p.unsupported, 4);
 });
 
@@ -88,9 +88,9 @@ test("DNR: domains are batched, options map, priorities order", () => {
   const d = rules.find((r) => r.condition.urlFilter === "||d.com/x.js");
   assert.deepEqual(d.condition, { urlFilter: "||d.com/x.js", resourceTypes: ["script"], domainType: "thirdParty", initiatorDomains: ["e.com"], excludedInitiatorDomains: ["f.e.com"] });
   const allow = rules.find((r) => r.action.type === "allow");
-  assert.equal(allow.priority, 2);
+  assert.equal(allow.priority, 3);
   assert.deepEqual(allow.condition, { requestDomains: ["g.com"], resourceTypes: ["image"] });
-  assert.equal(rules.find((r) => r.condition.requestDomains?.[0] === "h.com").priority, 3);
+  assert.equal(rules.find((r) => r.condition.requestDomains?.[0] === "h.com").priority, 4);
   assert.equal(new Set(rules.map((r) => r.id)).size, rules.length);
 });
 
@@ -129,7 +129,7 @@ test("scriptlet calls: aliases, escaped commas, quotes, unknown and trusted name
   assert.deepEqual(parseScriptletCall("acs, document.write, /ad\\,s/"), ["abort-current-script", "document.write", "/ad,s/"]);
   assert.deepEqual(parseScriptletCall("nostif.js, '1, 2', 500"), ["no-setTimeout-if", "1, 2", "500"]);
   assert.deepEqual(parseScriptletCall(""), []);
-  assert.equal(parseScriptletCall("nobab"), null);
+  assert.equal(parseScriptletCall("no-such-scriptlet"), null);
   assert.equal(parseScriptletCall("trusted-set-cookie, a, b"), null);
 });
 
@@ -208,4 +208,44 @@ test("trusted-only filters: $replace= and trusted scriptlets come from uBlock Or
     assert.equal(p.replacers.length + p.scriptlets.length, 0, source);
     assert.equal(p.unsupported, 3, source);
   }
+});
+
+test("generic hiding: keyed on the page's classes and ids, with exceptions and $generichide", () => {
+  const e = engineFor(["##.ad-box", "###banner", "##.ad.wide", "##a[href*=\"/aff/\"]", "~safe.com##.promo", "nice.com#@#.ad-box", "@@||quiet.org^$generichide", "@@||bare.net^$elemhide", "bare.net##.x"].join("\n"));
+  assert.deepEqual(e.genericFor("news.com", [".ad-box", "#banner", ".ad", ".other"]).sort(), ["#banner", ".ad-box", ".ad.wide"]);
+  assert.deepEqual(e.genericHighFor("news.com"), ['a[href*="/aff/"]']);
+  assert.deepEqual(e.genericFor("nice.com", [".ad-box"]), []);
+  assert.deepEqual(e.genericFor("shop.safe.com", [".promo"]), []);
+  assert.deepEqual(e.genericFor("www.quiet.org", [".ad-box"]), []);
+  assert.deepEqual(e.genericHighFor("quiet.org"), []);
+  assert.deepEqual(e.cosmeticFor("bare.net"), []); // $elemhide: no specific hiding either
+  assert.equal(parseList("##+js(nowoif)\n##.a:has-text(x)", "t").unsupported, 2); // generic scriptlets / procedural: no
+});
+
+test("$popup filters close tabs a page opens, @@$popup lets them be", () => {
+  const e = engineFor(["||ads.pop^$popup", "/go/offer$popup,third-party", "@@||ads.pop/ok$popup", "||ads.pop^$script"].join("\n"));
+  assert.ok(e.popupBlocked({ url: "https://ads.pop/x", pageHost: "site.com" }));
+  assert.equal(e.popupBlocked({ url: "https://ads.pop/ok", pageHost: "site.com" }), null);
+  assert.ok(e.popupBlocked({ url: "https://other.com/go/offer", pageHost: "site.com" }));
+  assert.equal(e.popupBlocked({ url: "https://site.com/go/offer", pageHost: "site.com" }), null); // first-party
+  assert.equal(e.match(req("https://ads.pop/x.png", "site.com", "image")).block, false); // $popup alone doesn't block requests
+});
+
+test("$redirect and $redirect-rule pick a surrogate; DNR gets redirect rules only for $redirect", () => {
+  const e = engineFor(["||imasdk.example/ima3.js$script,redirect=google-ima.js", "||cdn.example/ads.js$script,redirect-rule=noopjs", "||cdn.example^$third-party"].join("\n"));
+  assert.equal(e.match(req("https://imasdk.example/ima3.js", "v.com")).filter.redirect.resource, "google-ima.js");
+  assert.equal(e.redirectRuleFor(req("https://cdn.example/ads.js", "v.com")), "noopjs");
+  const { rules } = listToRules(parseList("||imasdk.example/ima3.js$script,redirect=google-ima.js:5\n||x.example/a.js$redirect-rule=noopjs\n||y.example/b.js$script,redirect=unknown-thing", "t"));
+  assert.deepEqual(rules[0].action, { type: "redirect", redirect: { extensionPath: "/redirects/google-ima.js" } });
+  assert.equal(rules[0].priority, 2);
+  assert.equal(rules.length, 2); // redirect-rule is left out; an unknown surrogate is a plain block
+  assert.deepEqual(rules[1].action, { type: "block" });
+});
+
+test("$badfilter cancels the same filter, also from another list", () => {
+  const listA = "||ads.example^\n||keep.example^";
+  const bad = badfiltersOf("||ads.example^$badfilter");
+  const p = parseList(listA, "a", bad);
+  assert.deepEqual(p.hosts, ["keep.example"]);
+  assert.equal(parseList("||t.example^$script\n||t.example^$script,badfilter", "b").network.length, 0);
 });

@@ -108,6 +108,8 @@ async function cosmeticEngine() {
       try {
         const data = await (await fetch(chrome.runtime.getURL(`cosmetic/${id}.json`))).json();
         engine.addCosmetic(data.cosmetic, data.exceptions); // scriptlets of bundled lists are registered instead
+        engine.addPopups(data.popups, data.popupExceptions);
+        engine.addHideExceptions(data.hideExceptions);
       } catch {
         // list without cosmetic rules
       }
@@ -122,6 +124,8 @@ async function cosmeticEngine() {
       const parsed = parseList(text, "user");
       engine.addCosmetic(parsed.cosmetic, parsed.cosmeticExceptions);
       engine.addScriptlets(parsed.scriptlets, parsed.scriptletExceptions);
+      engine.addPopups(parsed.popups, parsed.popupExceptions);
+      engine.addHideExceptions(parsed.hideExceptions);
     }
     return { engine, disabledSites: settings.disabledSites };
   })();
@@ -211,6 +215,17 @@ chrome.webRequest.onErrorOccurred.addListener((details) => {
     c.n++;
   });
 }, { urls: ["<all_urls>"] });
+// A request answered with one of PrivaBlock's surrogates ($redirect) was blocked too; count it the same way.
+const SURROGATES = chrome.runtime.getURL("redirects/");
+chrome.webRequest.onBeforeRedirect.addListener((details) => {
+  if (details.tabId < 0 || !details.redirectUrl?.startsWith(SURROGATES)) return;
+  if (details.documentLifecycle && details.documentLifecycle !== "active") return;
+  changeTabCounts((counts) => {
+    const c = details.frameId === 0 && details.documentId ? newDocument(counts, details.tabId, details.documentId, false)
+      : counts.get(details.tabId) ?? counts.set(details.tabId, { doc: null, n: 0, known: false }).get(details.tabId);
+    c.n++;
+  });
+}, { urls: ["<all_urls>"] });
 chrome.tabs.onRemoved.addListener((tabId) => changeTabCounts((counts) => counts.delete(tabId)));
 chrome.tabs.onReplaced.addListener((added, removed) => changeTabCounts((counts) => counts.delete(removed)));
 
@@ -244,7 +259,7 @@ async function pageBlockedOnTab(tabId) {
 /** Rules Chromium matched on a tab since its last navigation, each marked block or allow. */
 async function matchedOnTab(tabId) {
   const [{ rulesMatchedInfo }, staticIds, dynamic] = await Promise.all([dnr.getMatchedRules({ tabId }), staticAllowIds(), dnr.getDynamicRules()]);
-  const dynamicAllow = new Set(dynamic.filter((r) => r.action.type !== "block").map((r) => `${dnr.DYNAMIC_RULESET_ID}:${r.id}`));
+  const dynamicAllow = new Set(dynamic.filter((r) => r.action.type === "allow" || r.action.type === "allowAllRequests").map((r) => `${dnr.DYNAMIC_RULESET_ID}:${r.id}`));
   const isAllow = (key) => staticIds.has(key) || dynamicAllow.has(key);
   return rulesMatchedInfo.map((m) => ({
     time: m.timeStamp, ruleId: m.rule.ruleId,
@@ -359,7 +374,17 @@ const handlers = {
     const h = normalizeHost(host);
     const { engine, disabledSites } = await cosmeticEngine();
     if (!h || disabledSites.some((d) => h === d || h.endsWith(`.${d}`))) return { enabled: false, selectors: [] };
-    return { enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h), scriptlets: engine.scriptletsFor(h) };
+    return {
+      enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h), scriptlets: engine.scriptletsFor(h),
+      generic: engine.genericHighFor(h), genericOff: engine.hidingOff(h).generic,
+    };
+  },
+  // The page's classes and ids → generic selectors that start with one of them.
+  async getGeneric({ host, tokens }) {
+    const h = normalizeHost(host);
+    const { engine, disabledSites } = await cosmeticEngine();
+    if (!h || disabledSites.some((d) => domainMatches(h, d)) || !Array.isArray(tokens)) return { selectors: [] };
+    return { selectors: engine.genericFor(h, tokens.slice(0, 5000).map(String)) };
   },
   async startPicker() {
     return startPicker(await activeTab());
@@ -403,7 +428,7 @@ async function enabledRuleCount(settings) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const fromExtensionPage = sender.url?.startsWith(chrome.runtime.getURL(""));
-  const contentAllowed = ["getCosmetic", "recordCosmetic", "newDocument", "pickerCreate"].includes(message?.type);
+  const contentAllowed = ["getCosmetic", "getGeneric", "recordCosmetic", "newDocument", "pickerCreate"].includes(message?.type);
   const handler = handlers[message?.type];
   if (!handler || (!fromExtensionPage && !contentAllowed)) return false;
   Promise.resolve(handler(message, sender)).then(sendResponse, (error) => sendResponse({ ok: false, error: String(error.message || error) }));
@@ -419,6 +444,40 @@ async function clearSiteBadges(site, enabled) {
     // A browser that refuses null throws before returning a promise.
     await Promise.resolve().then(() => chrome.action.setBadgeText({ tabId: tab.id, text: enabled ? null : "" })).catch(() => {});
   }
+}
+
+// ------------------------------------------------------------------ popups
+
+// A tab a page opens ($popup filters, which DNR can't express): its first web address is checked against
+// the lists and the tab closed if they block it. Tabs opened by another tab in the last few seconds count.
+const POPUP_WATCH_MS = 4000;
+const popupWatch = new Map(); // tabId → { pageHost, until }
+
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (!Number.isInteger(tab.openerTabId)) return;
+  const opener = await chrome.tabs.get(tab.openerTabId).catch(() => null);
+  let pageHost = "";
+  try {
+    pageHost = new URL(opener?.url || "").hostname;
+  } catch {}
+  if (!pageHost) return;
+  popupWatch.set(tab.id, { pageHost, until: Date.now() + POPUP_WATCH_MS });
+  const url = tab.pendingUrl || tab.url || "";
+  if (/^https?:/.test(url)) checkPopup(tab.id, url);
+});
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.url && popupWatch.has(tabId)) checkPopup(tabId, change.url);
+});
+chrome.tabs.onRemoved.addListener((tabId) => popupWatch.delete(tabId));
+
+async function checkPopup(tabId, url) {
+  const watch = popupWatch.get(tabId);
+  if (!watch || Date.now() > watch.until) return popupWatch.delete(tabId);
+  if (!/^https?:/.test(url)) return;
+  popupWatch.delete(tabId); // only the first web address decides
+  const { engine, disabledSites } = await cosmeticEngine();
+  if (disabledSites.some((d) => domainMatches(watch.pageHost, d))) return;
+  if (engine.popupBlocked({ url, pageHost: watch.pageHost })) chrome.tabs.remove(tabId).catch(() => {});
 }
 
 // ------------------------------------------------------------------ element picker & shortcuts

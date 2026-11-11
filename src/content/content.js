@@ -23,7 +23,7 @@
   function inject(id, selectors) {
     if (!selectors.length) return null;
     const style = document.createElement("style");
-    style.id = id;
+    style.className = id;
     style.textContent = selectors.map((s) => `${s}{display:none!important}`).join("\n");
     (document.head || document.documentElement).appendChild(style);
     return style;
@@ -75,11 +75,57 @@
     if (response.procedural?.length) {
       globalThis.privablockProcedural?.(response.procedural, (count) => api.runtime.sendMessage({ type: "recordCosmetic", count }).catch(() => {}));
     }
+    const generic = [];
+    if (!response.genericOff) {
+      inject("privablock-generic", response.generic || []);
+      watchGeneric((found) => {
+        generic.push(...found);
+        inject("privablock-generic", found);
+      });
+    }
     const report = () => {
-      const count = countHidden(youtube ? [...selectors, ...YOUTUBE] : selectors);
+      const count = countHidden([...selectors, ...generic, ...(youtube ? YOUTUBE : [])]);
       if (count) api.runtime.sendMessage({ type: "recordCosmetic", count }).catch(() => {});
     };
-    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", report, { once: true });
-    else report();
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(report, 300), { once: true });
+    else setTimeout(report, 300);
   }, () => {});
+
+  // Generic hiding rules ("##.ad-banner" for every site) are many, so, as uBO does, only those starting
+  // with a class or id the page actually has are asked for: now, when the DOM is ready, and as it changes.
+  function watchGeneric(found) {
+    const seen = new Set();
+    let pending = new Set();
+    let timer = 0;
+    const collect = (el) => {
+      if (el.id && !seen.has(`#${el.id}`)) pending.add(`#${el.id}`);
+      for (const c of el.classList || []) if (!seen.has(`.${c}`)) pending.add(`.${c}`);
+    };
+    const scan = (root) => {
+      if (root.nodeType !== 1) return;
+      collect(root);
+      for (const el of root.querySelectorAll("[id],[class]")) collect(el);
+    };
+    const flush = () => {
+      timer = 0;
+      if (!pending.size) return;
+      const tokens = [...pending];
+      for (const t of tokens) seen.add(t);
+      pending = new Set();
+      api.runtime.sendMessage({ type: "getGeneric", host: location.hostname, tokens }).then((r) => {
+        if (r?.selectors?.length) found(r.selectors);
+      }, () => {});
+    };
+    const soon = () => (timer ||= setTimeout(flush, 100));
+    if (document.documentElement) scan(document.documentElement);
+    flush();
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => (scan(document.documentElement), flush()), { once: true });
+    new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === "attributes") collect(r.target);
+        else for (const n of r.addedNodes) scan(n);
+      }
+      if (pending.size) soon();
+    }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["id", "class"] });
+  }
 })();

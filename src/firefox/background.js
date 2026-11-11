@@ -1,6 +1,7 @@
 // PrivaBlock for Firefox: blocking webRequest engine (MV2, persistent background page).
 import { Engine } from "../core/engine.js";
-import { parseList, RESOURCE_TYPES } from "../core/filters.js";
+import { parseList, badfiltersOf, RESOURCE_TYPES } from "../core/filters.js";
+import { redirectFile } from "../core/redirects.js";
 import { LISTS, PROFILES, enabledLists } from "../core/lists.js";
 import { normalizeHost, sameSite, domainMatches } from "../core/psl.js";
 import { loadSettings, migrate, today, fetchList, siteForUrl, listName, pickerFilter, withFilter, backupValues } from "../core/runtime.js";
@@ -28,10 +29,10 @@ const state = {
 
 // ------------------------------------------------------------------ filter lists
 
-async function cachedOrFetched(id, url, force) {
+async function cachedOrFetched(id, url, force, anyAge = false) {
   const key = `list:${id}`;
   const cached = (await browser.storage.local.get(key))[key];
-  const fresh = cached && Date.now() - cached.updated < REFRESH_AFTER_MS;
+  const fresh = cached && (anyAge || Date.now() - cached.updated < REFRESH_AFTER_MS);
   if (cached && fresh && !force) return { text: cached.text, updated: cached.updated, source: "cache" };
   try {
     const text = await fetchList(url);
@@ -50,7 +51,8 @@ async function cachedOrFetched(id, url, force) {
  */
 let queued = null;
 let queuedForce = false;
-function rebuild(force = false) {
+// anyAge: use cached lists however old (start-up, while pages wait); a later rebuild refreshes them.
+function rebuild(force = false, anyAge = false) {
   if (state.loading) {
     queuedForce ||= force;
     queued ??= state.loading.then(() => {
@@ -69,17 +71,23 @@ function rebuild(force = false) {
       ...enabledLists(s.profile, s.listOverrides).map((id) => ({ id, url: LISTS[id].url })),
       ...Object.values(s.customLists).filter((l) => l.enabled !== false).map((l) => ({ id: l.id, url: l.url })),
     ];
+    const got = {};
     for (const { id, url } of sources) {
       try {
-        const got = await cachedOrFetched(id, url, force);
-        const parsed = parseList(got.text, id);
-        next.add(parsed);
-        lists[id] = { ok: true, rules: parsed.network.length + parsed.hosts.length, cosmetic: parsed.cosmetic.length, updated: got.updated, source: got.source, error: got.error };
+        got[id] = await cachedOrFetched(id, url, force, anyAge);
       } catch (error) {
         lists[id] = { ok: false, rules: 0, cosmetic: 0, error: String(error.message || error) };
       }
     }
-    const mine = parseList(s.myFilters, "user");
+    // $badfilter in any list (or My filters) cancels the filter in every list, as in uBO.
+    const badfilters = badfiltersOf(s.myFilters);
+    for (const g of Object.values(got)) badfiltersOf(g.text, badfilters);
+    for (const [id, g] of Object.entries(got)) {
+      const parsed = parseList(g.text, id, badfilters);
+      next.add(parsed);
+      lists[id] = { ok: true, rules: parsed.network.length + parsed.hosts.length, cosmetic: parsed.cosmetic.length, updated: g.updated, source: g.source, error: g.error };
+    }
+    const mine = parseList(s.myFilters, "user", badfilters);
     next.add(mine);
     lists.user = { ok: true, rules: mine.network.length + mine.hosts.length, cosmetic: mine.cosmetic.length };
     engine = next;
@@ -100,18 +108,19 @@ function rebuild(force = false) {
 // src/core/scriptlets.js), one per shard of hosts. Registered again after each rebuild and per-site switch.
 let scriptletRegistrations = [];
 async function registerScriptlets() {
-  const old = scriptletRegistrations;
-  scriptletRegistrations = [];
-  await Promise.all(old.map((r) => r.unregister().catch(() => {})));
   const excludeMatches = hostMatches(state.settings.disabledSites);
   const results = await Promise.allSettled(scriptletShards(engine.scriptletData()).map(({ data, matches }) => browser.contentScripts.register({
     matches, ...(excludeMatches.length ? { excludeMatches } : {}),
     js: [{ code: handoffCode(data) }], runAt: "document_start", allFrames: true,
   })));
+  // The new set is in place before the old one goes, so no page loads in between without scriptlets.
+  const old = scriptletRegistrations;
+  scriptletRegistrations = [];
   for (const r of results) {
     if (r.status === "fulfilled") scriptletRegistrations.push(r.value);
     else console.error("PrivaBlock scriptlet registration failed", r.reason);
   }
+  await Promise.all(old.map((r) => r.unregister().catch(() => {})));
 }
 
 // ------------------------------------------------------------------ blocking
@@ -130,7 +139,14 @@ function siteDisabled(pageHost) {
   return state.settings.disabledSites.some((d) => domainMatches(pageHost, d));
 }
 
+// Until the lists and scriptlets are in place after a browser start, web requests wait (as in uBlock
+// Origin): a tab restored at start-up would otherwise load with nothing blocked and no scriptlets.
+// Capped, so a start-up that hangs can't hold the browser.
+const STARTUP_HOLD_MS = 15000;
+let started = null; // promise of the first rebuild; null once it is done
+
 function onBeforeRequest(d) {
+  if (started && d.tabId >= 0) return started.then(() => onBeforeRequest(d));
   if (d.type === "main_frame" || !d.url) return {};
   let requestHost, pageHost;
   try {
@@ -149,6 +165,9 @@ function onBeforeRequest(d) {
     return {};
   }
   countBlocked(d.tabId, 1);
+  // A blocked script or media file can be answered with a harmless stand-in ($redirect / $redirect-rule).
+  const file = redirectFile(filter.redirect?.resource || engine.redirectRuleFor({ url: d.url, requestHost, pageHost, type }));
+  if (file) return { redirectUrl: browser.runtime.getURL(`redirects/${file}`) };
   return { cancel: true };
 }
 
@@ -179,6 +198,35 @@ function rewriteResponse(requestId, replacers) {
 }
 
 browser.webRequest.onBeforeRequest.addListener(onBeforeRequest, { urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] }, ["blocking"]);
+
+// ------------------------------------------------------------------ popups
+
+// A tab a page opens ($popup filters): its first web address is checked against the lists, and the tab
+// closed if they block it. Tabs opened in the last few seconds by another tab are watched.
+const POPUP_WATCH_MS = 4000;
+const popupWatch = new Map(); // tabId → { opener page host, until }
+
+browser.tabs.onCreated.addListener(async (tab) => {
+  if (!Number.isInteger(tab.openerTabId)) return;
+  const opener = await browser.tabs.get(tab.openerTabId).catch(() => null);
+  const pageHost = hostOf(opener?.url || "");
+  if (!pageHost || siteDisabled(pageHost)) return;
+  popupWatch.set(tab.id, { pageHost, until: Date.now() + POPUP_WATCH_MS });
+  if (/^https?:/.test(tab.url || "")) checkPopup(tab.id, tab.url);
+});
+browser.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.url && popupWatch.has(tabId)) checkPopup(tabId, change.url);
+});
+browser.tabs.onRemoved.addListener((tabId) => popupWatch.delete(tabId));
+
+function checkPopup(tabId, url) {
+  const watch = popupWatch.get(tabId);
+  if (!watch || Date.now() > watch.until) return popupWatch.delete(tabId);
+  if (!/^https?:/.test(url)) return;
+  popupWatch.delete(tabId); // only the first web address decides
+  if (!engine.popupBlocked({ url, pageHost: watch.pageHost })) return;
+  browser.tabs.remove(tabId).catch(() => {});
+}
 
 // ------------------------------------------------------------------ stats & badge
 
@@ -368,7 +416,13 @@ const handlers = {
   getCosmetic: ({ host }) => {
     const h = normalizeHost(host);
     if (!h || siteDisabled(h)) return { enabled: false, selectors: [] };
-    return { enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h) };
+    return { enabled: true, selectors: engine.cosmeticFor(h), procedural: engine.proceduralFor(h), generic: engine.genericHighFor(h), genericOff: engine.hidingOff(h).generic };
+  },
+  // The page's classes and ids → generic selectors that start with one of them.
+  getGeneric: ({ host, tokens }) => {
+    const h = normalizeHost(host);
+    if (!h || siteDisabled(h) || !Array.isArray(tokens)) return { selectors: [] };
+    return { selectors: engine.genericFor(h, tokens.slice(0, 5000).map(String)) };
   },
   async startPicker() {
     return startPicker(await activeTab());
@@ -403,7 +457,7 @@ const handlers = {
 browser.runtime.onMessage.addListener((message, sender) => {
   // Settings-changing messages are only accepted from PrivaBlock's own pages.
   const fromExtensionPage = sender.url?.startsWith(browser.runtime.getURL(""));
-  const contentAllowed = ["getCosmetic", "recordCosmetic", "pickerCreate"].includes(message?.type);
+  const contentAllowed = ["getCosmetic", "getGeneric", "recordCosmetic", "pickerCreate"].includes(message?.type);
   const handler = handlers[message?.type];
   if (!handler || (!fromExtensionPage && !contentAllowed)) return undefined;
   return Promise.resolve(handler(message, sender));
@@ -443,7 +497,13 @@ async function init() {
   state.settings = await loadSettings(browser.storage.local);
   const stats = await browser.storage.local.get(["day", "dailyBlocked"]);
   if (stats.day === state.day) state.dailyBlocked = Number(stats.dailyBlocked) || 0;
-  await rebuild(false);
+  await rebuild(false, true);
 }
 
-init().catch((error) => console.error("PrivaBlock start-up failed", error));
+started = Promise.race([init(), new Promise((r) => setTimeout(r, STARTUP_HOLD_MS))])
+  .catch((error) => console.error("PrivaBlock start-up failed", error))
+  .finally(() => {
+    started = null;
+    // Lists that were too old to wait for are downloaded now.
+    if (Object.values(state.lists).some((l) => l.updated && Date.now() - l.updated >= REFRESH_AFTER_MS)) rebuild(false).catch(() => {});
+  });

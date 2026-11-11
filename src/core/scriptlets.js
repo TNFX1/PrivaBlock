@@ -35,6 +35,9 @@ const NAMES = {
   "json-edit-fetch-response": [],
   "json-edit-xhr-response": [],
   "edit-inbound-object": [],
+  "prevent-bab": ["nobab", "bab-defuser"],
+  "prevent-fab": ["nofab", "prevent-fab-3.2.0", "fuckadblock.js-3.2.0"],
+  "popads-dummy": [],
 };
 // Only from trusted lists (see lists.js): they rewrite what the page receives or runs.
 const TRUSTED_NAMES = {

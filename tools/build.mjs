@@ -5,7 +5,7 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { parseList } from "../src/core/filters.js";
+import { parseList, badfiltersOf } from "../src/core/filters.js";
 import { listToRules } from "../src/core/dnr.js";
 import { LISTS, PROFILES, DEFAULT_PROFILE } from "../src/core/lists.js";
 import { scriptletData, handoffCode, scriptletShards } from "../src/core/scriptlets.js";
@@ -20,7 +20,7 @@ const { version } = JSON.parse(await readFile(`${root}package.json`, "utf8"));
 async function copySources(browser, out) {
   await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
-  for (const dir of ["core", "content", "ui", "icons", "_locales", browser]) await cp(`${root}src/${dir}`, `${out}/${dir}`, { recursive: true });
+  for (const dir of ["core", "content", "ui", "icons", "_locales", "redirects", browser]) await cp(`${root}src/${dir}`, `${out}/${dir}`, { recursive: true });
   await rm(`${out}/${browser}/manifest.json`);
   const manifest = JSON.parse(await readFile(`${root}src/${browser}/manifest.json`, "utf8"));
   manifest.version = version;
@@ -59,22 +59,32 @@ async function buildChromiumRulesets(out, manifest) {
   await mkdir(`${out}/scriptlets`);
   const counts = {};
   const parsedLists = {};
-  for (const [id, { url }] of Object.entries(LISTS)) parsedLists[id] = parseList(await listText(id, url), id);
+  const texts = {};
+  for (const [id, { url }] of Object.entries(LISTS)) texts[id] = await listText(id, url);
+  // $badfilter cancels a filter whichever bundled list has it (as uBO does across its lists).
+  const badfilters = new Set();
+  for (const text of Object.values(texts)) badfiltersOf(text, badfilters);
+  for (const [id, text] of Object.entries(texts)) parsedLists[id] = parseList(text, id, badfilters);
   // Scriptlet exceptions of every bundled list go into every list's handoff script: an exception only
   // ever turns a call off, and the lists are enabled one by one.
   const scriptletExceptions = Object.values(parsedLists).flatMap((p) => p.scriptletExceptions);
   for (const [id, parsed] of Object.entries(parsedLists)) {
     const { rules, skipped } = listToRules(parsed);
     await writeFile(`${out}/rulesets/${id}.json`, JSON.stringify(rules));
-    const slim = (r) => ({ hosts: r.hosts, excludedHosts: r.excludedHosts, selector: r.selector, ...(r.procedural ? { procedural: r.procedural } : {}) });
-    await writeFile(`${out}/cosmetic/${id}.json`, JSON.stringify({ cosmetic: parsed.cosmetic.map(slim), exceptions: parsed.cosmeticExceptions.map(slim) }));
+    const slim = (r) => ({ hosts: r.hosts, excludedHosts: r.excludedHosts, selector: r.selector, ...(r.procedural ? { procedural: r.procedural } : {}), ...(r.generic ? { generic: true } : {}) });
+    // What the service worker needs beside the rulesets: cosmetic rules (generic ones too), $popup filters
+    // and @@…$generichide-style exceptions.
+    await writeFile(`${out}/cosmetic/${id}.json`, JSON.stringify({
+      cosmetic: parsed.cosmetic.map(slim), exceptions: parsed.cosmeticExceptions.map(slim),
+      popups: parsed.popups, popupExceptions: parsed.popupExceptions, hideExceptions: parsed.hideExceptions,
+    }));
     const shards = scriptletShards(scriptletData(parsed.scriptlets, scriptletExceptions));
     for (const [i, shard] of shards.entries()) await writeFile(`${out}/scriptlets/${id}-${i}.js`, handoffCode(shard.data));
     counts[id] = {
       scriptletShards: shards.map((s) => s.matches), // shard i of list id is scriptlets/<id>-<i>.js
       rules: parsed.network.length + parsed.hosts.length + parsed.exceptions.length, dnr: rules.length, cosmetic: parsed.cosmetic.length, skipped: skipped + parsed.unsupported,
       // the background counts matched rules as "blocked" only when they aren't allow (exception) rules
-      allowIds: rules.filter((r) => r.action.type !== "block").map((r) => r.id),
+      allowIds: rules.filter((r) => r.action.type === "allow" || r.action.type === "allowAllRequests").map((r) => r.id),
     };
     console.log(`  ${id.padEnd(16)} ${String(rules.length).padStart(7)} DNR rules  ${String(parsed.cosmetic.length).padStart(6)} cosmetic  ${String(parsed.scriptlets.length).padStart(5)} scriptlets  ${counts[id].skipped} skipped`);
   }

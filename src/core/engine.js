@@ -89,6 +89,12 @@ export class Engine {
     this.cosmeticByHost = new Map(); // host → rules
     this.cosmeticExceptionsByHost = new Map(); // host → Set(selector)
     this.genericCosmeticExceptions = new Set();
+    this.genericByToken = new Map(); // ".class" / "#id" → generic rules that start with it (looked up from the page's DOM)
+    this.genericHigh = []; // generic rules with no leading class or id: always applied
+    this.hideOff = { generic: [], all: [], specific: [] }; // hosts from @@…$generichide / $elemhide / $specifichide
+    this.popups = new FilterIndex(); // $popup: new tabs a page opens
+    this.popupExceptions = new FilterIndex();
+    this.redirectRules = new FilterIndex(); // $redirect-rule: a surrogate for requests something else blocks
     this.scriptlets = []; // parsed +js rules; looked up per page by the handoff script (see scriptlets.js)
     this.scriptletExceptions = [];
     this.stats = { network: 0, hosts: 0, cosmetic: 0, scriptlets: 0, unsupported: 0 };
@@ -96,19 +102,33 @@ export class Engine {
 
   /** Add one parsed list (output of parseList). */
   add(parsed) {
-    for (const f of parsed.network) this.blocks.add(f);
+    for (const f of parsed.network) {
+      this.blocks.add(f);
+      // As uBO: $redirect= is "block, and answer with this surrogate" whichever filter blocks the request.
+      if (f.redirect) this.redirectRules.add(f);
+    }
     for (const f of parsed.exceptions) this.exceptions.add(f);
     for (const f of parsed.replacers || []) this.replacers.add(f);
     for (const h of parsed.hosts) if (!this.blockedHosts.has(h)) this.blockedHosts.set(h, parsed.source);
     this.addCosmetic(parsed.cosmetic, parsed.cosmeticExceptions);
     this.addScriptlets(parsed.scriptlets, parsed.scriptletExceptions);
+    this.addPopups(parsed.popups, parsed.popupExceptions);
+    this.addHideExceptions(parsed.hideExceptions);
+    for (const f of parsed.redirectRules || []) this.redirectRules.add(f);
     this.stats.network += parsed.network.length;
     this.stats.hosts += parsed.hosts.length;
     this.stats.unsupported += parsed.unsupported || 0;
   }
 
   addCosmetic(rules, exceptions) {
-    for (const rule of rules) for (const h of rule.hosts) push(this.cosmeticByHost, h, rule);
+    for (const rule of rules) {
+      if (rule.generic) {
+        const key = genericKey(rule.selector);
+        if (key) push(this.genericByToken, key, rule);
+        else this.genericHigh.push(rule);
+      }
+      for (const h of rule.hosts) push(this.cosmeticByHost, h, rule);
+    }
     for (const ex of exceptions) {
       if (!ex.hosts.length) this.genericCosmeticExceptions.add(ex.selector);
       for (const h of ex.hosts) {
@@ -117,6 +137,72 @@ export class Engine {
       }
     }
     this.stats.cosmetic += rules.length;
+  }
+
+  addPopups(rules = [], exceptions = []) {
+    for (const f of rules) this.popups.add(f);
+    for (const f of exceptions) this.popupExceptions.add(f);
+  }
+
+  /** @@…$generichide-style filters: the pages they name (by domain or $domain=) get no generic (or no) hiding. */
+  addHideExceptions(filters = []) {
+    for (const f of filters) {
+      const hosts = f.requestDomain ? [f.requestDomain] : f.pageDomains?.include || [];
+      this.hideOff[f.hide].push(...hosts);
+    }
+  }
+
+  /** Which cosmetic filtering is off on `host`: { generic, specific } (both for $elemhide). */
+  hidingOff(value) {
+    const host = normalizeHost(value);
+    const on = (list) => list.some((d) => domainMatches(host, d));
+    const all = on(this.hideOff.all);
+    return { generic: all || on(this.hideOff.generic), specific: all || on(this.hideOff.specific) };
+  }
+
+  /** Generic selectors without a leading class/id: one stylesheet for every page (unless $generichide). */
+  genericHighFor(value) {
+    const host = normalizeHost(value);
+    if (this.hidingOff(host).generic) return [];
+    const excepted = this.exceptedSelectors(host);
+    return this.genericHigh.filter((r) => !excepted.has(r.selector) && !r.excludedHosts.some((x) => domainMatches(host, x))).map((r) => r.selector);
+  }
+
+  /** Generic selectors keyed on the classes / ids a page has (".ad", "#banner"), after exceptions. */
+  genericFor(value, tokens) {
+    const host = normalizeHost(value);
+    if (this.hidingOff(host).generic) return [];
+    const excepted = this.exceptedSelectors(host);
+    const out = [];
+    for (const token of tokens) {
+      for (const r of this.genericByToken.get(token) || []) {
+        if (!excepted.has(r.selector) && !r.excludedHosts.some((x) => domainMatches(host, x))) out.push(r.selector);
+      }
+    }
+    return out;
+  }
+
+  /** Whether a new tab opened by `pageHost` and loading `url` is a popup the lists block. */
+  popupBlocked({ url, pageHost }) {
+    const requestHost = new URL(url).hostname;
+    const ctx = { url, requestHost, pageHost: normalizeHost(pageHost), type: "popup", thirdParty: !!pageHost && !sameSite(requestHost, pageHost) };
+    const hit = (index) => [...index.candidates(requestHost, url)].find((f) => applies({ ...f, types: [] }, ctx));
+    const block = hit(this.popups);
+    return block && !hit(this.popupExceptions) ? block : null;
+  }
+
+  /** The $redirect-rule surrogate for a request that is blocked anyway (same arguments as match). */
+  redirectRuleFor({ url, requestHost, pageHost, type }) {
+    requestHost = normalizeHost(requestHost);
+    pageHost = normalizeHost(pageHost);
+    const ctx = { url, requestHost, pageHost, type, thirdParty: !!pageHost && !sameSite(requestHost, pageHost) };
+    return this.first(this.redirectRules, ctx)?.redirect.resource || "";
+  }
+
+  exceptedSelectors(host) {
+    const excepted = new Set(this.genericCosmeticExceptions);
+    for (const h of hostAndParents(host)) for (const s of this.cosmeticExceptionsByHost.get(h) || []) excepted.add(s);
+    return excepted;
   }
 
   addScriptlets(rules = [], exceptions = []) {
@@ -188,8 +274,8 @@ export class Engine {
 
   cosmeticRulesFor(value) {
     const host = normalizeHost(value);
-    const excepted = new Set(this.genericCosmeticExceptions);
-    for (const h of hostAndParents(host)) for (const s of this.cosmeticExceptionsByHost.get(h) || []) excepted.add(s);
+    if (this.hidingOff(host).specific) return [];
+    const excepted = this.exceptedSelectors(host);
     const rules = new Map();
     for (const h of hostAndParents(host)) {
       for (const rule of this.cosmeticByHost.get(h) || []) {
@@ -199,6 +285,12 @@ export class Engine {
     }
     return [...rules.values()];
   }
+}
+
+/** The leading ".class" or "#id" of a selector ("" if it starts with anything else). */
+export function genericKey(selector) {
+  const m = /^([.#][A-Za-z_][\w-]*)(?![\w\\-])/.exec(selector);
+  return m ? m[1] : "";
 }
 
 function applies(f, ctx) {

@@ -23,7 +23,7 @@ const check = (name, ok, detail = "") => {
 const PAGE = `<!doctype html><title>t</title>
 <div class="pb-hide-me">cosmetic target</div>
 <div class="pb-proc">Sponsored content</div>
-<div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div>
+<div class="pb-generic-ad">generic</div><script src="/ima3.js"></script><div class="pb-pick-me" style="width:300px;height:60px;background:#eee">pick me</div>
 <script>
 window.scriptletEarly = window.pbTest;
 window.results = {};
@@ -34,13 +34,14 @@ function probe(name, tag, url) {
   el.src = url;
   document.body.appendChild(el);
 }
-probe("googleAnalytics", "script", "https://www.google-analytics.com/analytics.js");
-probe("doubleclick", "script", "https://securepubads.g.doubleclick.net/tag/js/gpt.js");
+probe("tracker", "script", "https://static.hotjar.com/c/hotjar-1.js");
+probe("tracker2", "script", "https://connect.facebook.net/en_US/fbevents.js");
 probe("firstPartyImage", "img", "/pixel.png");
 </script>`;
-const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)"].join("\n");
+const MY_FILTERS = ["127.0.0.1##.pb-hide-me", "127.0.0.1##.pb-proc:has-text(Sponsored)", "127.0.0.1##+js(set, pbTest, true)", "##.pb-generic-ad", "/ima3.js$script,redirect=google-ima.js,domain=127.0.0.1"].join("\n");
 const PIXEL = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64");
 const server = createServer((req, res) => {
+  if (req.url === "/ima3.js") return res.writeHead(200, { "content-type": "text/javascript" }).end("window.realIma = true;");
   if (req.url === "/pixel.png") return res.writeHead(200, { "content-type": "image/png" }).end(PIXEL);
   if (req.url === "/empty") return res.writeHead(200, { "content-type": "text/html" }).end("<!doctype html><title>e</title>nothing to block");
   res.writeHead(200, { "content-type": "text/html" }).end(PAGE);
@@ -118,15 +119,15 @@ try {
   await send("saveMyFilters", { text: MY_FILTERS });
   for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
   const afterRebuild = await send("getSettings");
-  check("change during a rebuild is applied", afterRebuild.lists.easyAnnoyances?.ok && afterRebuild.lists.user?.cosmetic === 2, JSON.stringify(afterRebuild.lists.user));
+  check("change during a rebuild is applied", afterRebuild.lists.easyAnnoyances?.ok && afterRebuild.lists.user?.cosmetic === 3, JSON.stringify(afterRebuild.lists.user));
   await send("setList", { id: "easyAnnoyances", enabled: false });
   for (let i = 0; i < 120 && (await send("getSettings")).loading; i++) await sleep(1000);
 
   await go(pageUrl);
   await sleep(2500);
   const probes = JSON.parse((await evaluate("JSON.stringify(window.results)")).value);
-  check("Google Analytics blocked", probes.googleAnalytics === "blocked", probes.googleAnalytics);
-  check("DoubleClick blocked", probes.doubleclick === "blocked", probes.doubleclick);
+  check("tracker blocked (Hotjar)", probes.tracker === "blocked", probes.tracker);
+  check("tracker blocked (Facebook pixel)", probes.tracker2 === "blocked", probes.tracker2);
   check("first-party image allowed", probes.firstPartyImage === "loaded", probes.firstPartyImage);
   const hidden = (await evaluate("getComputedStyle(document.querySelector('.pb-hide-me')).display")).value;
   check("cosmetic rule from My filters hides the element", hidden === "none", hidden);
@@ -134,6 +135,10 @@ try {
   check("procedural rule (:has-text) hides the element", proc === "none", proc);
   const early = (await evaluate("String(window.scriptletEarly)")).value;
   check("scriptlet runs before the page's first script", early === "true", early);
+  const generic = (await evaluate("getComputedStyle(document.querySelector('.pb-generic-ad')).display")).value;
+  check("generic hiding rule (##.class) hides the element", generic === "none", generic);
+  const ima = (await evaluate("JSON.stringify({ real: !!window.realIma, standIn: !!window.google?.ima?.AdsLoader })")).value;
+  check("$redirect answers the script with PrivaBlock's IMA stand-in", ima === '{"real":false,"standIn":true}', ima);
 
   // Element picker: started for the active tab, a real click picks, Enter saves the rule.
   const { context: ctl } = await bidi("browsingContext.create", { type: "tab", background: true });
@@ -210,7 +215,7 @@ try {
   await go(pageUrl);
   await sleep(2500);
   const off = JSON.parse((await evaluate("JSON.stringify(window.results)")).value);
-  check("site switch off: trackers load again", off.googleAnalytics === "loaded", off.googleAnalytics);
+  check("site switch off: trackers load again", off.tracker === "loaded", off.tracker);
   await go(`${BASE}/ui/settings.html`);
   await send("setSiteEnabled", { site: "127.0.0.1", enabled: true });
 

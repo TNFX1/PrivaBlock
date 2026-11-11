@@ -138,14 +138,34 @@
     throw new ReferenceError(MAGIC);
   }
 
+  // Wrapped functions stay indistinguishable from the native ones: each is a Proxy of the original, and
+  // Function.prototype.toString answers for the original (pages look for blockers through fetch.toString()).
+  const originals = new WeakMap(); // proxy → what it wraps
+  let cloaked = false;
+  function cloak(proxy, original) {
+    originals.set(proxy, original);
+    if (cloaked) return;
+    cloaked = true;
+    const nativeToString = Function.prototype.toString;
+    const toString = new Proxy(nativeToString, {
+      apply(target, thisArg, args) {
+        let fn = thisArg;
+        while (originals.has(fn)) fn = originals.get(fn);
+        return Reflect.apply(target, fn, args);
+      },
+    });
+    originals.set(toString, nativeToString);
+    Function.prototype.toString = toString;
+  }
+
+  /** Replace owner[name] with make(original), called with the caller's `this` and arguments. */
   function wrap(owner, name, make) {
     const original = owner[name];
     if (typeof original !== "function") return;
-    const wrapped = make(original);
-    try {
-      defineProperty(wrapped, "toString", { value: () => toStr(original), configurable: true });
-    } catch {}
-    owner[name] = wrapped;
+    const replacement = make(original);
+    const proxy = new Proxy(original, { apply: (target, thisArg, args) => Reflect.apply(replacement, thisArg, args) });
+    cloak(proxy, original);
+    owner[name] = proxy;
   }
 
   // Pages with Trusted Types (YouTube: require-trusted-types-for 'script') refuse plain strings as script
@@ -154,7 +174,7 @@
   function setText(node, text) {
     if (node.nodeName === "SCRIPT" && win.trustedTypes?.createPolicy) {
       try {
-        policy ??= win.trustedTypes.createPolicy("privablock", { createScript: (t) => t });
+        policy ??= win.trustedTypes.createPolicy(`p${Math.random().toString(36).slice(2, 10)}`, { createScript: (t) => t });
         node.textContent = policy.createScript(text);
         return;
       } catch {}
@@ -239,6 +259,9 @@
    * trusted calls may end with `=json`, `+={json}` (merge) or `=repl({"regex"|"pattern":…,"replacement":…})`.
    * Returns edit(obj) = { obj, changed }, or null when the query can't be read.
    */
+  // Objects from any realm (a structuredClone copy, an iframe's JSON) count as objects.
+  const isObj = (v) => v !== null && typeof v === "object";
+
   function jsonq(query, trusted) {
     const steps = [];
     let i = 0;
@@ -246,7 +269,7 @@
     const q = query.trim();
     if (!q || q.startsWith("v2:")) return null; // RFC 9535 queries: not supported yet
     const name = () => {
-      const m = /^(?:\*|[\w$-]+)/.exec(q.slice(i));
+      const m = /^(?:\*|[A-Za-z_]\w*)/.exec(q.slice(i));
       if (!m) return null;
       i += m[0].length;
       return m[0];
@@ -306,80 +329,106 @@
     }
     if (!steps.length) return null;
 
+    // As uBO: "[?.a.b op value]", op one of == != < <= > >= ^= $= *= (on the value as text) or =/re/[i];
+    // without op, whether the property exists. "!" negates the last test. Value: 'text' or JSON.
     function filterOf(text) {
       const not = text.startsWith("!");
-      const m = /^\.?([\w$.-]+?)(?:(==|\*=|\^=|\$=|=)([\s\S]*))?$/.exec(not ? text.slice(1) : text);
+      const m = /^\.?([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)(?:\s*(==|!=|<=|>=|\^=|\$=|\*=|<|>|=(?=\/))\s*([\s\S]*))?$/.exec(not ? text.slice(1) : text);
       if (!m) return null;
       const path = m[1].split(".");
-      let test = () => true;
+      const last = path.pop();
+      let test = null;
       if (m[2]) {
         const raw = m[3];
-        const re = m[2] === "=" && /^\/.+\/[imsu]*$/.test(raw) ? pattern(raw) : null;
-        let value = raw;
-        try {
-          value = JSON.parse(raw);
-        } catch {}
-        const str = String(value);
-        test = {
-          "==": (v) => v === value,
-          "*=": (v) => typeof v === "string" && v.includes(str),
-          "^=": (v) => typeof v === "string" && v.startsWith(str),
-          "$=": (v) => typeof v === "string" && v.endsWith(str),
-          "=": (v) => (re ? typeof v === "string" && re.test(v) : v === value),
-        }[m[2]];
+        let value;
+        if (m[2] === "=") {
+          const re = /^\/(.+)\/(i?)$/.exec(raw);
+          if (!re) return null;
+          try {
+            value = new RegExp(re[1], re[2]);
+          } catch {
+            return null;
+          }
+          test = (v) => value.test(`${v}`); // uBO ignores "!" here
+        } else {
+          if (/^'.*'$/s.test(raw)) value = raw.slice(1, -1);
+          else {
+            try {
+              value = JSON.parse(raw);
+            } catch {
+              return null;
+            }
+          }
+          const check = {
+            "==": (v) => v === value, "!=": (v) => v !== value,
+            "<": (v) => v < value, "<=": (v) => v <= value, ">": (v) => v > value, ">=": (v) => v >= value,
+            "^=": (v) => `${v}`.startsWith(value), "$=": (v) => `${v}`.endsWith(value), "*=": (v) => `${v}`.includes(value),
+          }[m[2]];
+          test = (v) => check(v) !== not;
+        }
       }
       return (node) => {
-        let v = node;
+        let owner = node;
         for (const p of path) {
-          if (!(v instanceof Object) || !(p in v)) return not;
-          v = v[p];
+          if (!isObj(owner) || !Object.hasOwn(owner, p)) return false;
+          owner = owner[p];
         }
-        return test(v) !== not;
+        if (!isObj(owner)) return false;
+        const has = owner[last] !== undefined || Object.hasOwn(owner, last);
+        if (test) return has && test(owner[last]);
+        return has !== not;
       };
     }
 
+    // As uBO: "=json" sets ("${now}" in a string becomes the time), "+=json" adds to an object or array,
+    // "=repl({regex, flags, replacement})" / "=repl({pattern, replacement})" edits a string.
     function assignmentOf(plus, raw) {
-      const repl = /^repl\(([\s\S]*)\)$/.exec(raw);
+      const repl = /^repl\(([\s\S]+)\)$/.exec(raw);
       try {
         if (repl) {
           const spec = JSON.parse(repl[1]);
-          const re = spec.regex ? replacePattern(spec.regex.startsWith("/") ? spec.regex : `/${spec.regex}/`) : null;
-          const find = re || (typeof spec.pattern === "string" ? spec.pattern : null);
-          if (find === null || typeof spec.replacement !== "string") return null;
-          return (v) => (typeof v === "string" ? v.replace(find, spec.replacement) : v);
+          if (typeof spec.replacement !== "string") return null;
+          const re = spec.regex !== undefined
+            ? new RegExp(spec.regex, spec.flags)
+            : new RegExp(String(spec.pattern).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+          return (v) => (typeof v === "string" ? v.replace(re, spec.replacement) : v);
         }
         const value = JSON.parse(raw);
-        const now = (v) => (typeof v === "string" ? v.replaceAll("${now}", String(Date.now())) : v);
-        if (plus) return value instanceof Object ? (v) => (v instanceof Object ? Object.assign(v, value) : v) : null;
-        return () => now(structuredClone(value));
+        if (plus) {
+          if (!isObj(value)) return null;
+          return (v) => {
+            if (Array.isArray(v)) v.push(...(Array.isArray(value) ? structuredClone(value) : [structuredClone(value)]));
+            else if (isObj(v)) Object.assign(v, structuredClone(value));
+            return v;
+          };
+        }
+        return () => (typeof value === "string" ? value.replace("${now}", String(Date.now())) : structuredClone(value));
       } catch {
         return null;
       }
     }
 
     return (root) => {
-      if (!(root instanceof Object)) return { obj: root, changed: false };
+      if (!isObj(root)) return { obj: root, changed: false };
       let refs = [{ owner: null, key: null, value: root }];
-      steps.forEach(([kind, arg], n) => {
-        const last = n === steps.length - 1;
+      steps.forEach(([kind, arg]) => {
         const next = [];
         for (const r of refs) {
           const v = r.value;
           if (kind === "filter") {
-            if (arg(v)) next.push(r);
-          } else if (!(v instanceof Object)) continue;
+            // as uBO: on an array the filter picks the items that pass; on an object it tests the object
+            if (Array.isArray(v)) v.forEach((item, k) => arg(item) && next.push({ owner: v, key: String(k), value: item }));
+            else if (arg(v)) next.push(r);
+          } else if (!isObj(v)) continue;
           else if (kind === "child") {
-            for (const k of arg === "*" ? Object.keys(v) : [arg]) {
-              // an assignment may create the last property
-              if (k in v || (last && assign && arg !== "*")) next.push({ owner: v, key: k, value: v[k] });
-            }
+            for (const k of arg === "*" ? Object.keys(v) : [arg]) if (Object.hasOwn(v, k)) next.push({ owner: v, key: k, value: v[k] });
           } else if (kind === "index") {
             const k = arg < 0 && Array.isArray(v) ? v.length + arg : arg;
             if (k in v) next.push({ owner: v, key: String(k), value: v[k] });
           } else if (kind === "descend") {
             const seen = new Set();
             const walk = (o) => {
-              if (!(o instanceof Object) || seen.has(o)) return;
+              if (!isObj(o) || seen.has(o)) return;
               seen.add(o);
               for (const k of Object.keys(o)) {
                 if (arg === "*" || k === arg) next.push({ owner: o, key: k, value: o[k] });
@@ -395,7 +444,7 @@
       if (assign) {
         for (const r of refs) {
           if (r.owner) r.owner[r.key] = assign(r.value);
-          else assign(r.value); // += on the root object merges in place
+          else assign(r.value); // += on the root object adds in place
         }
         return { obj: root, changed: true };
       }
@@ -422,12 +471,13 @@
     }
   }
 
-  /** trusted-replace-*-response: text → text. "*" is the whole body; `includes, x` gates it. */
+  /** trusted-replace-*-response: text → text. "*" is the whole body; `includes, x` gates it. As uBO, a plain
+   *  string is replaced once, a /regex/ as its flags say. */
   function replacer(find, replacement, opts) {
     const re = find === "*" ? /^[\s\S]*$/ : replacePattern(find);
     if (!re) return null;
     const gate = opts.includes ? needle(opts.includes) : null;
-    return (text) => (gate && !gate(text) ? text : typeof re === "string" ? text.split(re).join(replacement) : text.replace(re, replacement));
+    return (text) => (gate && !gate(text) ? text : text.replace(re, replacement));
   }
 
   /** An object edit ({ obj, changed }) as a text → text edit of a JSON body. */
@@ -473,44 +523,43 @@
     });
   }
 
-  /** Rewrite the text (or JSON) of matching XMLHttpRequest responses, read through response / responseText. */
+  /**
+   * Rewrite the text (or JSON) of matching XMLHttpRequest responses, as uBO does: a subclass whose
+   * response / responseText getters return the edited body (cached until the body grows).
+   */
   function editXhr(opts, edit) {
     const test = requestFilter(opts);
     if (!test) return;
-    const proto = win.XMLHttpRequest.prototype;
-    const textGet = getOwnPropertyDescriptor(proto, "responseText")?.get;
-    const responseGet = getOwnPropertyDescriptor(proto, "response")?.get;
-    if (!textGet || !responseGet) return;
-    const done = new WeakMap(); // xhr → edited text
-    const editedText = (xhr) => {
-      if (!done.has(xhr)) done.set(xhr, edit(textGet.call(xhr)));
-      return done.get(xhr);
-    };
-    wrap(proto, "open", (original) => function (method, url, ...rest) {
-      done.delete(this);
-      if (test({ url: String(url), method: String(method).toUpperCase() })) {
-        defineProperty(this, "responseText", { configurable: true, get() {
-          return this.readyState === 4 ? editedText(this) : textGet.call(this);
-        } });
-        defineProperty(this, "response", { configurable: true, get() {
-          const r = responseGet.call(this);
-          if (this.readyState !== 4) return r;
-          if (this.responseType === "" || this.responseType === "text") return editedText(this);
-          if (this.responseType === "json" && r instanceof Object) {
-            try {
-              return nativeParse(edit(nativeStringify(r)));
-            } catch {
-              return r;
-            }
-          }
-          return r;
-        } });
-      } else {
-        delete this.responseText;
-        delete this.response;
+    const state = new WeakMap(); // xhr → { inner, out }
+    const Base = win.XMLHttpRequest;
+    win.XMLHttpRequest = class XMLHttpRequest extends Base {
+      open(method, url, ...rest) {
+        if (test({ url: String(url), method: String(method).toUpperCase() })) state.set(this, {});
+        else state.delete(this);
+        return super.open(method, url, ...rest);
       }
-      return original.call(this, method, url, ...rest);
-    });
+      get response() {
+        const inner = super.response;
+        const m = state.get(this);
+        if (!m) return inner;
+        if (m.inner === inner && "out" in m) return m.out;
+        m.inner = inner;
+        m.out = inner;
+        if (typeof inner === "string") m.out = edit(inner);
+        else if (this.responseType === "json" && isObj(inner)) {
+          try {
+            const before = nativeStringify(inner);
+            const after = edit(before);
+            if (after !== before) m.out = nativeParse(after);
+          } catch {}
+        }
+        return m.out;
+      }
+      get responseText() {
+        const r = this.response;
+        return typeof r === "string" ? r : super.responseText;
+      }
+    };
   }
 
   /** Edit argument `pos` of calls to `chain` (e.g. JSON.stringify) with a jsonq edit; a copy is edited. */
@@ -525,9 +574,14 @@
     const stringify = nativeStringify;
     wrap(owner, chain.slice(dot + 1), (original) => function (...args) {
       const k = at < 0 ? args.length + at : at;
-      if (args[k] instanceof Object) {
+      if (isObj(args[k])) {
         try {
-          const copy = parse(stringify(args[k]));
+          let copy;
+          try {
+            copy = structuredClone(args[k]);
+          } catch {
+            copy = parse(stringify(args[k])); // objects with functions in them
+          }
           const out = edit(copy);
           if (out.changed) args[k] = out.obj;
         } catch {}
@@ -677,7 +731,8 @@
 
     "replace-node-text"(nodeName = "", find = "", replacement = "", ...rest) {
       const name = nodeName.toLowerCase();
-      const re = replacePattern(find);
+      // as uBO: a plain string is matched everywhere (flags gms), a /regex/ as its own flags say
+      const re = !find ? /^[\s\S]*$/ : /^\/.+\/[gimsu]*$/.test(find) ? replacePattern(find) : new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gms");
       if (!name || !re) return;
       const opts = varargs(rest);
       const includes = opts.includes || opts.condition ? needle(opts.includes || opts.condition) : null;
@@ -805,6 +860,60 @@
 
     noeval() {
       wrap(win, "eval", () => function () {});
+    },
+
+    // BlockAdBlock arrives obfuscated, run through eval or a string setTimeout: such code with enough of
+    // BlockAdBlock's tell-tale pieces is not run.
+    "prevent-bab"() {
+      const tells = [
+        ["blockadblock"], ["babasbm"], [/getItem\(['"]babn['"]\)/],
+        ["ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", "String.fromCharCode", "charAt", "AdBlock", "DOMContentLoaded", "getElementById", "sessionStorage", "localStorage", "clientWidth", "Math.random", "<<2|"],
+      ];
+      const isBab = (code) => typeof code === "string" && tells.some((group) => group.filter((t) => (t instanceof RegExp ? t.test(code) : code.includes(t))).length / group.length >= 0.8);
+      const cleanUp = () => {
+        document.body?.style.removeProperty("visibility");
+        document.getElementById("babasbmsgx")?.remove();
+      };
+      wrap(win, "eval", (original) => function (code) {
+        if (isBab(code)) return cleanUp();
+        return original.call(this, code);
+      });
+      wrap(win, "setTimeout", (original) => function (fn, ...rest) {
+        if (typeof fn === "string" && (isBab(fn) || /\.bab_elementid.$/.test(fn))) fn = () => {};
+        return original.call(this, fn, ...rest);
+      });
+    },
+
+    // FuckAdBlock / BlockAdBlock 3.2 objects that always report "no blocker" (as redirects/fuckadblock.js).
+    "prevent-fab"() {
+      function Detector() {}
+      const p = Detector.prototype;
+      p.onDetected = function () {
+        return this;
+      };
+      p.onNotDetected = function (fn) {
+        if (typeof fn === "function") setTimeout(fn, 1);
+        return this;
+      };
+      p.on = function (detected, fn) {
+        return detected ? this : this.onNotDetected(fn);
+      };
+      p.check = () => true;
+      p.emitEvent = p.setOption = function () {
+        return this;
+      };
+      p.clearEvent = () => {};
+      for (const name of ["FuckAdBlock", "BlockAdBlock", "SniffAdBlock"]) trapProperty(win, name, { get: () => Detector });
+      for (const name of ["fuckAdBlock", "blockAdBlock", "sniffAdBlock"]) {
+        const instance = new Detector();
+        trapProperty(win, name, { get: () => instance });
+      }
+    },
+
+    // Pages that wait for PopAds to load before showing anything get a PopAds that has "loaded".
+    "popads-dummy"() {
+      trapProperty(win, "PopAds", { get: () => ({}) });
+      trapProperty(win, "popns", { get: () => "PopAds" });
     },
 
     nowebrtc() {
