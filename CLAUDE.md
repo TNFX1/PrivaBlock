@@ -1,6 +1,6 @@
 # PrivaBlock
 
-Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Version 3.1.0 on `main` (3.0.0 is on AMO).
+Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Current release: 3.1.2 (tag `v3.1.2`, GitHub release with both zips; Firefox build on AMO). Changes are listed in `docs/CHANGELOG.md`.
 
 ## Layout
 
@@ -19,7 +19,8 @@ Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Version 3.1.
 - `npm test`: unit tests (node:test)
 - `npm run build`: build both browsers into `dist/`
 - `node tests/browser/firefox-smoke.mjs`: headless Firefox over WebDriver BiDi (needs `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS`)
-- `node tests/browser/chromium-smoke.mjs`: Chromium (helium-browser) over CDP
+- `node tests/browser/chromium-smoke.mjs`: Chromium over CDP. For blocking measurements use Playwright's Chromium (`~/.cache/ms-playwright/`): Helium bundles uBO, which skews counts.
+- `node tools/build.mjs --offline`: build from the cached lists when `filters.adtidy.org` is flaky
 - `npm run update-psl`: refresh the public suffix list
 
 Requires Node 22 or newer.
@@ -37,5 +38,7 @@ Requires Node 22 or newer.
 
 ## Open items
 
-- Push tag v3.0.0 (CI creates the GitHub release with both zips), then v3.1.0 when 3.1.0 ships.
-- Store publishing: Firefox needs AMO signing for a permanent install; Chrome Web Store. Check each store's AI-content policy before submitting.
+- Releases: bump `version` in `package.json` (the manifests say 0.0.0; the build fills it in), add a `docs/CHANGELOG.md` entry, push a `v*` tag; CI creates the GitHub release with both zips. AMO refuses a version number it has seen before, so never reuse one.
+- Chrome Web Store: not published yet, needs the owner's developer account. Check its AI-content policy before submitting.
+- The popup's live count on Chromium also counts requests blocked by other blockers, so it can be higher than the toolbar number.
+- Chromium: clearing the toolbar count when a site is switched off from Settings > Sites has not been checked by eye.

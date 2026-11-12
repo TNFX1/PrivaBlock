@@ -82,6 +82,8 @@ PrivaBlock has no servers and collects nothing. Settings, statistics and the log
 The only network requests it makes are downloads of the filter lists you enabled, sent straight to their
 publishers (on Chromium only for your custom lists). See [PRIVACY.md](PRIVACY.md).
 
+What changed in each version: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
 ## Build
 
 Needs Node.js 22 or newer. No dependencies.
