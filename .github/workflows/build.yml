@@ -34,18 +34,14 @@ jobs:
       - name: Firefox smoke test
         run: |
           node tests/browser/firefox-smoke.mjs 2>&1 | tee smoke.log || { grep -E 'FAIL|Error' smoke.log | sed 's/^/::error::firefox: /'; exit 1; }
-      # Branded Chrome ignores --load-extension, so use Chrome for Testing.
-      - uses: browser-actions/setup-chrome@v1
-        id: chrome
-        with:
-          chrome-version: stable
+      # Branded Chrome (what setup-chrome's "stable" installs) ignores --load-extension; Chrome for Testing doesn't.
+      - name: Install Chrome for Testing
+        run: echo "CHROME=$(npx -y @puppeteer/browsers install chrome@stable --path "$RUNNER_TEMP/cft" | tail -1 | cut -d' ' -f2)" >> "$GITHUB_ENV"
       - name: Chromium smoke test
         run: |
           # Ubuntu 24.04 blocks the user namespaces Chrome's sandbox needs unless the binary has an AppArmor profile.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           node tests/browser/chromium-smoke.mjs --browser "$CHROME" 2>&1 | tee smoke.log || { grep -E 'FAIL|Error' smoke.log | sed 's/^/::error::chromium: /'; exit 1; }
-        env:
-          CHROME: ${{ steps.chrome.outputs.chrome-path }}
       - uses: actions/upload-artifact@v4
         with:
           name: privablock-${{ github.sha }}
