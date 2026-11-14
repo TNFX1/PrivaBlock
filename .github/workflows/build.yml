@@ -12,6 +12,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash # = bash -eo pipefail, so a failing test isn't hidden by tee
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,15 +30,22 @@ jobs:
           echo "LISTS_VERSION=$v" >> "$GITHUB_ENV"
       - run: npm test
       - run: npm run build
+      # Failing checks become annotations, which are readable without signing in to GitHub.
       - name: Firefox smoke test
-        run: node tests/browser/firefox-smoke.mjs
+        run: |
+          node tests/browser/firefox-smoke.mjs 2>&1 | tee smoke.log || { grep -E 'FAIL|Error' smoke.log | sed 's/^/::error::firefox: /'; exit 1; }
       # Branded Chrome ignores --load-extension, so use Chrome for Testing.
       - uses: browser-actions/setup-chrome@v1
         id: chrome
         with:
           chrome-version: stable
       - name: Chromium smoke test
-        run: node tests/browser/chromium-smoke.mjs --browser "${{ steps.chrome.outputs.chrome-path }}"
+        run: |
+          # Ubuntu 24.04 blocks the user namespaces Chrome's sandbox needs unless the binary has an AppArmor profile.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          node tests/browser/chromium-smoke.mjs --browser "$CHROME" 2>&1 | tee smoke.log || { grep -E 'FAIL|Error' smoke.log | sed 's/^/::error::chromium: /'; exit 1; }
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
       - uses: actions/upload-artifact@v4
         with:
           name: privablock-${{ github.sha }}
