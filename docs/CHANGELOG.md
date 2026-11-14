@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.3 — 2026-11-14
+
+- Chromium: built with this week's filter lists. From now on a Chromium build with fresh lists is
+  published every week as a `lists-…` release (Firefox downloads lists by itself).
+- Every change is now checked in real Firefox and Chrome before release (CI smoke tests).
+
 ## 3.1.2 — 2026-11-11
 
 (3.1.1 was never released: the number had already been used on AMO.)

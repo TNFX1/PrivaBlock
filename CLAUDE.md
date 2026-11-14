@@ -1,6 +1,6 @@
 # PrivaBlock
 
-Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Current release: 3.1.2 (tag `v3.1.2`, GitHub release with both zips; Firefox build on AMO). Changes are listed in `docs/CHANGELOG.md`.
+Ad and tracker blocker for Firefox and Chromium browsers (MPL-2.0). Current release: 3.1.3 (tag `v3.1.3`, GitHub release with both zips; Firefox build on AMO). Changes are listed in `docs/CHANGELOG.md`.
 
 ## Layout
 
