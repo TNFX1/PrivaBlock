@@ -6,7 +6,7 @@ on:
     tags: ["v*"]
   pull_request:
   schedule:
-    - cron: "0 4 * * 1" # weekly: rebuild the Chromium rulesets from fresh lists
+    - cron: "0 4 * * 1" # weekly: rebuild the Chromium rulesets from fresh lists and release them
   workflow_dispatch:
 
 jobs:
@@ -17,8 +17,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      # Chromium only reads the filter lists that were compiled into the zip, so the weekly run gives
+      # them a new version: <package.json version>.<YYDDD>, e.g. 3.1.2.26320. A later 3.1.3 sorts above it.
+      - name: Weekly lists version
+        if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+        run: |
+          v="$(node -p 'require("./package.json").version').$(date -u +%y%j | sed 's/^0*//')"
+          node -e 'const f="package.json",p=require("./"+f);p.version=process.argv[1];require("fs").writeFileSync(f,JSON.stringify(p,null,2)+"\n")' "$v"
+          echo "LISTS_VERSION=$v" >> "$GITHUB_ENV"
       - run: npm test
       - run: npm run build
+      - name: Firefox smoke test
+        run: node tests/browser/firefox-smoke.mjs
+      # Branded Chrome ignores --load-extension, so use Chrome for Testing.
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: stable
+      - name: Chromium smoke test
+        run: node tests/browser/chromium-smoke.mjs --browser "${{ steps.chrome.outputs.chrome-path }}"
       - uses: actions/upload-artifact@v4
         with:
           name: privablock-${{ github.sha }}
@@ -28,5 +45,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "$GITHUB_REF_NAME" --title "PrivaBlock $GITHUB_REF_NAME" --generate-notes dist/*.zip
+      - name: Release fresh Chromium lists (weekly)
+        if: env.LISTS_VERSION != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "lists-$LISTS_VERSION" --target "$GITHUB_SHA" --latest=false \
+            --title "PrivaBlock $LISTS_VERSION (Chromium, fresh filter lists)" \
+            --notes "Weekly rebuild of the Chromium extension with this week's filter lists. No code changes. Firefox downloads lists by itself and needs no update." \
+            "dist/privablock-chromium-$LISTS_VERSION.zip"
     permissions:
       contents: write

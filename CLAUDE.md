@@ -39,6 +39,7 @@ Requires Node 22 or newer.
 ## Open items
 
 - Releases: bump `version` in `package.json` (the manifests say 0.0.0; the build fills it in), add a `docs/CHANGELOG.md` entry, push a `v*` tag; CI creates the GitHub release with both zips. AMO refuses a version number it has seen before, so never reuse one.
+- Weekly CI run (Monday 04:00 UTC, or a manual run on `main`): rebuilds Chromium with fresh lists and publishes a `lists-<version>.<YYDDD>` release with only the Chromium zip, not marked latest. Firefox fetches lists itself. CI also runs both smoke tests (Chrome for Testing via `browser-actions/setup-chrome`).
 - Chrome Web Store: not published yet, needs the owner's developer account. Check its AI-content policy before submitting.
 - The popup's live count on Chromium also counts requests blocked by other blockers, so it can be higher than the toolbar number.
 - Chromium: clearing the toolbar count when a site is switched off from Settings > Sites has not been checked by eye.
